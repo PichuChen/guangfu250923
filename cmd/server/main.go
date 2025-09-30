@@ -15,6 +15,8 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 func main() {
@@ -50,6 +52,14 @@ func main() {
 	}))
 	r.Use(middleware.RequestLogger(pool, 0))
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+
+	// Swagger UI with custom configuration
+	r.StaticFile("/openapi.yaml", "./openapi.yaml")
+	
+	url := ginSwagger.URL("/openapi.yaml")
+	defaultHost := ginSwagger.DefaultModelsExpandDepth(-1)
+	
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, url, defaultHost))
 
 	// Sheet cache
 	sheetCache := sheetcache.New(cfg.SheetID, cfg.SheetTab)
@@ -102,6 +112,7 @@ func main() {
 
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: r}
 	log.Printf("server listening on :%s", cfg.Port)
+	log.Printf("Swagger UI available at http://localhost:%s/swagger/index.html", cfg.Port)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
 	}

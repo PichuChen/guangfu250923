@@ -6,6 +6,17 @@ info:
     依據需求圖片實作的後端 API。提供建立物資需求、查詢需求清單、物資配送登記。
 servers:
   - url: http://localhost:8080
+    description: 本地開發
+  - url: '{protocol}://{host}:{port}'
+    description: 自訂伺服器
+    variables:
+      protocol:
+        default: http
+        enum: [http, https]
+      host:
+        default: localhost
+      port:
+        default: '8080'
 paths:
   /healthz:
     get:
