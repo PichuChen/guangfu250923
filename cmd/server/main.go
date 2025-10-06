@@ -53,6 +53,7 @@ func main() {
 			"https://sites.google.com/view/guangfu250923",
 			"https://692001998-atari-embeds.googleusercontent.com",
 			"https://*-atari-embeds.googleusercontent.com",
+			"https://hualien-volunteers-frontend-iota.vercel.app/",
 		},
 		AllowMethods: []string{"GET", "POST", "PATCH", "OPTIONS"},
 		// Add "User-Agent" to satisfy Safari (it sometimes includes it in Access-Control-Request-Headers)
