@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -204,6 +205,7 @@ type humanResourceCreateInput struct {
 	IsCompleted          bool     `json:"is_completed"`
 	HasMedical           *bool    `json:"has_medical"`
 	PiiDate              *int64   `json:"pii_date"`
+	ValidPin             *string  `json:"valid_pin"`
 	RoleName             string   `json:"role_name"`
 	RoleType             string   `json:"role_type"`
 	Skills               []string `json:"skills"`
@@ -250,6 +252,14 @@ func (h *Handler) CreateHumanResource(c *gin.Context) {
 			return
 		}
 	}
+	// valid_pin: if empty or missing, generate one for backward compatibility; otherwise validate format
+	if in.ValidPin == nil || strings.TrimSpace(*in.ValidPin) == "" {
+		tmp := GeneratePin(6)
+		in.ValidPin = &tmp
+	} else if !isValidPin6(in.ValidPin) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "valid_pin must be 6 digits"})
+		return
+	}
 	if in.HeadcountNeed <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "headcount_need must be > 0"})
 		return
@@ -277,11 +287,11 @@ func (h *Handler) CreateHumanResource(c *gin.Context) {
 	shiftEnd := toTime(in.ShiftEndTs)
 	assignmentTs := toTime(in.AssignmentTimestamp)
 
-	// NOTE: keep column count in sync with values placeholders (1..35). If you add/remove a column update both lists.
+	// NOTE: keep column count in sync with values placeholders. If you add/remove a column update both lists.
 	sql := `insert into human_resources (
-			id,org,address,phone,status,is_completed,has_medical,pii_date,role_name,role_type,skills,certifications,experience_level,language_requirements,headcount_need,headcount_got,headcount_unit,role_status,shift_start_ts,shift_end_ts,shift_notes,assignment_timestamp,assignment_count,assignment_notes,total_roles_in_request,completed_roles_in_request,pending_roles_in_request,total_requests,active_requests,completed_requests,cancelled_requests,total_roles,completed_roles,pending_roles,urgent_requests,medical_requests
+			id,org,address,phone,status,is_completed,has_medical,pii_date,role_name,role_type,skills,certifications,experience_level,language_requirements,headcount_need,headcount_got,headcount_unit,role_status,shift_start_ts,shift_end_ts,shift_notes,assignment_timestamp,assignment_count,assignment_notes,total_roles_in_request,completed_roles_in_request,pending_roles_in_request,total_requests,active_requests,completed_requests,cancelled_requests,total_roles,completed_roles,pending_roles,urgent_requests,medical_requests,valid_pin
 		) values (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37
 		) returning id,org,address,phone,status,is_completed,has_medical,pii_date,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint,role_name,role_type,coalesce(skills,'{}'),coalesce(certifications,'{}'),experience_level,coalesce(language_requirements,'{}'),headcount_need,headcount_got,headcount_unit,role_status,extract(epoch from shift_start_ts)::bigint,extract(epoch from shift_end_ts)::bigint,shift_notes,extract(epoch from assignment_timestamp)::bigint,assignment_count,assignment_notes,total_roles_in_request,completed_roles_in_request,pending_roles_in_request,total_requests,active_requests,completed_requests,cancelled_requests,total_roles,completed_roles,pending_roles,urgent_requests,medical_requests`
 
 	row := h.pool.QueryRow(context.Background(), sql,
@@ -290,7 +300,7 @@ func (h *Handler) CreateHumanResource(c *gin.Context) {
 		in.HeadcountNeed, in.HeadcountGot, in.HeadcountUnit, in.RoleStatus,
 		shiftStart, shiftEnd, in.ShiftNotes, assignmentTs, in.AssignmentCount, in.AssignmentNotes,
 		in.TotalRolesInRequest, in.CompletedRolesInRequest, in.PendingRolesInRequest, in.TotalRequests, in.ActiveRequests,
-		in.CompletedRequests, in.CancelledRequests, in.TotalRoles, in.CompletedRoles, in.PendingRoles, in.UrgentRequests, in.MedicalRequests,
+		in.CompletedRequests, in.CancelledRequests, in.TotalRoles, in.CompletedRoles, in.PendingRoles, in.UrgentRequests, in.MedicalRequests, in.ValidPin,
 	)
 
 	var hr models.HumanResource
@@ -340,6 +350,7 @@ func (h *Handler) CreateHumanResource(c *gin.Context) {
 // ----- Patch -----
 
 type humanResourcePatchInput struct {
+	ValidPin                *string  `json:"valid_pin"`
 	Org                     *string  `json:"org"`
 	Address                 *string  `json:"address"`
 	Phone                   *string  `json:"phone"`
@@ -383,6 +394,61 @@ func (h *Handler) PatchHumanResource(c *gin.Context) {
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	// Determine if this PATCH only updates the allowed trio of fields:
+	// status, is_completed, headcount_got. If so, we'll bypass PIN verification.
+	onlyAllowedTrio := func(in humanResourcePatchInput) bool {
+		// Track if any of the allowed fields are actually being updated
+		hasAnyAllowed := false
+		if in.Status != nil {
+			hasAnyAllowed = true
+		}
+		if in.IsCompleted != nil {
+			hasAnyAllowed = true
+		}
+		if in.HeadcountGot != nil {
+			hasAnyAllowed = true
+		}
+
+		// If any other updatable field is present in the payload, it's not a limited update
+		if in.Org != nil || in.Address != nil || in.Phone != nil || in.HasMedical != nil || in.PiiDate != nil ||
+			in.RoleName != nil || in.RoleType != nil || in.Skills != nil || in.Certifications != nil ||
+			in.ExperienceLevel != nil || in.LanguageRequirements != nil || in.HeadcountNeed != nil ||
+			in.HeadcountUnit != nil || in.RoleStatus != nil || in.ShiftStartTs != nil || in.ShiftEndTs != nil ||
+			in.ShiftNotes != nil || in.AssignmentTimestamp != nil || in.AssignmentCount != nil ||
+			in.AssignmentNotes != nil || in.TotalRolesInRequest != nil || in.CompletedRolesInRequest != nil ||
+			in.PendingRolesInRequest != nil || in.TotalRequests != nil || in.ActiveRequests != nil ||
+			in.CompletedRequests != nil || in.CancelledRequests != nil || in.TotalRoles != nil ||
+			in.CompletedRoles != nil || in.PendingRoles != nil || in.UrgentRequests != nil ||
+			in.MedicalRequests != nil {
+			return false
+		}
+		return hasAnyAllowed
+	}(in)
+	// Fetch stored pin (if any)
+	var storedPin *string
+	if err := h.pool.QueryRow(context.Background(), `select valid_pin from human_resources where id=$1`, id).Scan(&storedPin); err != nil {
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// PIN behavior:
+	// - If VERIFY_HR_PIN=false, do not enforce matching; still generate/set one if missing to onboard records.
+	// - If VERIFY_HR_PIN=true, enforce match once a pin exists; else generate/set as needed.
+	if storedPin == nil || strings.TrimSpace(*storedPin) == "" {
+		// bypass
+	} else {
+		// PIN exists already
+		if os.Getenv("VERIFY_HR_PIN") == "true" && !onlyAllowedTrio {
+			// Must provide and match
+			if !isValidPin6(in.ValidPin) || *in.ValidPin != *storedPin {
+				c.JSON(http.StatusForbidden, gin.H{"error": "invalid pin"})
+				return
+			}
+		}
 	}
 	setParts := []string{}
 	args := []interface{}{}

@@ -649,7 +649,7 @@ paths:
     post:
       operationId: createHumanResource
       summary: 建立人力需求/角色
-      description: 建立一筆人力角色需求紀錄 (含需求人數與技能等資訊)。
+      description: 建立一筆人力角色需求紀錄 (含需求人數與技能等資訊)。可提供 valid_pin 作為後續編輯驗證用的6碼PIN (不會在回應中回傳)；若未提供將由系統自動產生。
       requestBody:
         required: true
         content:
@@ -674,7 +674,7 @@ paths:
     patch:
       operationId: patchHumanResource
       summary: 更新人力需求/角色 (部分欄位)
-      description: 部分更新人力角色需求欄位，只更新傳入欄位。
+      description: 部分更新人力角色需求欄位，只更新傳入欄位。若此紀錄已設定過 valid_pin，必須提供同一個 PIN 才能更新除了 status, is_completed以及headcount_got 的欄位；若尚未設定且本次未提供，系統會自動產生一組 PIN 並允許此次更新。
       parameters:
         - in: path
           name: id
@@ -1970,6 +1970,7 @@ components:
         is_completed: { type: boolean }
         has_medical: { type: boolean, nullable: true }
         pii_date: { type: integer, format: int64, nullable: true, description: 個資同意時間 (Unix Timestamp) }
+        valid_pin: { type: string, nullable: true, description: 編輯用6碼PIN；未提供將自動產生，不會在回應中回傳, minLength: 6, maxLength: 6 }
         role_name: { type: string }
         role_type: { type: string }
         skills: { type: array, items: { type: string } }
@@ -1989,6 +1990,12 @@ components:
     HumanResourcePatch:
       type: object
       properties:
+        valid_pin:
+          type: string
+          nullable: true
+          description: 編輯驗證用6碼PIN；若紀錄尚未有PIN且本次未提供，系統會自動產生
+          minLength: 6
+          maxLength: 6
         org: { type: string }
         address: { type: string }
         phone: { type: string }

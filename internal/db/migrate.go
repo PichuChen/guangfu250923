@@ -239,6 +239,8 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
             urgent_requests int,
             medical_requests int
         )`,
+		// Add valid_pin to human_resources for edit verification (6-digit pin). Keep nullable for backward compatibility; app enforces on create/patch.
+		`alter table if exists human_resources add column if not exists valid_pin text`,
 		// Relax NOT NULL if previously set
 		`do $$ begin
         perform 1 from information_schema.columns where table_name='human_resources' and column_name='phone' and is_nullable='NO';
@@ -280,6 +282,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
         )`,
+		`alter table if exists supplies add column if not exists valid_pin text`,
 		`create index if not exists idx_supplies_updated_at on supplies(updated_at)`,
 		/* Renamed to supply_items (previously 'suppily_items') */
 		`create table if not exists supply_items (
