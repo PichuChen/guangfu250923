@@ -257,7 +257,7 @@ func (h *Handler) CreateHumanResource(c *gin.Context) {
 		tmp := GeneratePin(6)
 		in.ValidPin = &tmp
 	} else if !isValidPin6(in.ValidPin) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "valid_pin must be 6 digits"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "valid_pin must be 6 digits, with 1 - 9"})
 		return
 	}
 	if in.HeadcountNeed <= 0 {
@@ -395,58 +395,33 @@ func (h *Handler) PatchHumanResource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// Determine if this PATCH only updates the allowed trio of fields:
-	// status, is_completed, headcount_got. If so, we'll bypass PIN verification.
-	onlyAllowedTrio := func(in humanResourcePatchInput) bool {
-		// Track if any of the allowed fields are actually being updated
-		hasAnyAllowed := false
-		if in.Status != nil {
-			hasAnyAllowed = true
-		}
-		if in.IsCompleted != nil {
-			hasAnyAllowed = true
-		}
-		if in.HeadcountGot != nil {
-			hasAnyAllowed = true
-		}
-
-		// If any other updatable field is present in the payload, it's not a limited update
-		if in.Org != nil || in.Address != nil || in.Phone != nil || in.HasMedical != nil || in.PiiDate != nil ||
-			in.RoleName != nil || in.RoleType != nil || in.Skills != nil || in.Certifications != nil ||
-			in.ExperienceLevel != nil || in.LanguageRequirements != nil || in.HeadcountNeed != nil ||
-			in.HeadcountUnit != nil || in.RoleStatus != nil || in.ShiftStartTs != nil || in.ShiftEndTs != nil ||
-			in.ShiftNotes != nil || in.AssignmentTimestamp != nil || in.AssignmentCount != nil ||
-			in.AssignmentNotes != nil || in.TotalRolesInRequest != nil || in.CompletedRolesInRequest != nil ||
-			in.PendingRolesInRequest != nil || in.TotalRequests != nil || in.ActiveRequests != nil ||
-			in.CompletedRequests != nil || in.CancelledRequests != nil || in.TotalRoles != nil ||
-			in.CompletedRoles != nil || in.PendingRoles != nil || in.UrgentRequests != nil ||
-			in.MedicalRequests != nil {
-			return false
-		}
-		return hasAnyAllowed
-	}(in)
-	// Fetch stored pin (if any)
-	var storedPin *string
-	if err := h.pool.QueryRow(context.Background(), `select valid_pin from human_resources where id=$1`, id).Scan(&storedPin); err != nil {
-		if err == pgx.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+	// Optional verification (controlled by VERIFY_HR_PIN)
+	if os.Getenv("VERIFY_HR_PIN") == "true" {
+		// Fetch stored pin (if any)
+		var storedPin *string
+		if err := h.pool.QueryRow(context.Background(), `select valid_pin from human_resources where id=$1`, id).Scan(&storedPin); err != nil {
+			if err == pgx.ErrNoRows {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	// PIN behavior:
-	// - If VERIFY_HR_PIN=false, do not enforce matching; still generate/set one if missing to onboard records.
-	// - If VERIFY_HR_PIN=true, enforce match once a pin exists; else generate/set as needed.
-	if storedPin == nil || strings.TrimSpace(*storedPin) == "" {
-		// bypass
-	} else {
-		// PIN exists already
-		if os.Getenv("VERIFY_HR_PIN") == "true" && !onlyAllowedTrio {
-			// Must provide and match
-			if !isValidPin6(in.ValidPin) || *in.ValidPin != *storedPin {
-				c.JSON(http.StatusForbidden, gin.H{"error": "invalid pin"})
-				return
+		// PIN behavior:
+		// - If VERIFY_HR_PIN=false, do not enforce matching; still generate/set one if missing to onboard records.
+		// - If VERIFY_HR_PIN=true, enforce match once a pin exists; else generate/set as needed.
+		if storedPin == nil || strings.TrimSpace(*storedPin) == "" {
+			// bypass
+		} else {
+			// PIN exists already in record
+			// Determine if this PATCH only updates the allowed trio of fields:
+			// status, is_completed, headcount_got. If so, we'll bypass PIN verification.
+			if !isOnlyUpdateStatusIsCompletedHeadcountGot(in) {
+				// Must provide and match
+				if !isValidPin6(in.ValidPin) || *in.ValidPin != *storedPin {
+					c.JSON(http.StatusForbidden, gin.H{"error": "invalid pin"})
+					return
+				}
 			}
 		}
 	}
@@ -634,4 +609,33 @@ func sliceOrNil(s []string) interface{} {
 		return nil
 	}
 	return s
+}
+
+func isOnlyUpdateStatusIsCompletedHeadcountGot(in humanResourcePatchInput) bool {
+	// Track if any of the allowed fields are actually being updated
+	hasAnyAllowed := false
+	if in.Status != nil {
+		hasAnyAllowed = true
+	}
+	if in.IsCompleted != nil {
+		hasAnyAllowed = true
+	}
+	if in.HeadcountGot != nil {
+		hasAnyAllowed = true
+	}
+
+	// If any other updatable field is present in the payload, it's not a limited update
+	if in.Org != nil || in.Address != nil || in.Phone != nil || in.HasMedical != nil || in.PiiDate != nil ||
+		in.RoleName != nil || in.RoleType != nil || in.Skills != nil || in.Certifications != nil ||
+		in.ExperienceLevel != nil || in.LanguageRequirements != nil || in.HeadcountNeed != nil ||
+		in.HeadcountUnit != nil || in.RoleStatus != nil || in.ShiftStartTs != nil || in.ShiftEndTs != nil ||
+		in.ShiftNotes != nil || in.AssignmentTimestamp != nil || in.AssignmentCount != nil ||
+		in.AssignmentNotes != nil || in.TotalRolesInRequest != nil || in.CompletedRolesInRequest != nil ||
+		in.PendingRolesInRequest != nil || in.TotalRequests != nil || in.ActiveRequests != nil ||
+		in.CompletedRequests != nil || in.CancelledRequests != nil || in.TotalRoles != nil ||
+		in.CompletedRoles != nil || in.PendingRoles != nil || in.UrgentRequests != nil ||
+		in.MedicalRequests != nil {
+		return false
+	}
+	return hasAnyAllowed
 }

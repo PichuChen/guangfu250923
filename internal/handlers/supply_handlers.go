@@ -264,38 +264,24 @@ func (h *Handler) PatchSupply(c *gin.Context) {
 		return
 	}
 	// Optional verification (controlled by VERIFY_SUPPLY_PIN)
-	var storedPin *string
-	if err := h.pool.QueryRow(context.Background(), `select valid_pin from supplies where id=$1`, id).Scan(&storedPin); err != nil {
-		if err == pgx.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if storedPin == nil || strings.TrimSpace(*storedPin) == "" {
-		if in.ValidPin == nil || strings.TrimSpace(*in.ValidPin) == "" {
-			// generate and set
-			gen := GeneratePin(6)
-			if _, err := h.pool.Exec(context.Background(), `update supplies set valid_pin=$1, updated_at=now() where id=$2`, gen, id); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if os.Getenv("VERIFY_SUPPLY_PIN") == "true" {
+		var storedPin *string
+		if err := h.pool.QueryRow(context.Background(), `select valid_pin from supplies where id=$1`, id).Scan(&storedPin); err != nil {
+			if err == pgx.ErrNoRows {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 				return
 			}
-		} else if !isValidPin6(in.ValidPin) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "valid_pin must be 6 digits"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+		if storedPin == nil || strings.TrimSpace(*storedPin) == "" {
+			// bypass
 		} else {
-			if _, err := h.pool.Exec(context.Background(), `update supplies set valid_pin=$1, updated_at=now() where id=$2`, in.ValidPin, id); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-		}
-	} else {
-		if os.Getenv("VERIFY_SUPPLY_PIN") == "true" {
 			if !isValidPin6(in.ValidPin) || *in.ValidPin != *storedPin {
 				c.JSON(http.StatusForbidden, gin.H{"error": "invalid pin"})
 				return
 			}
+
 		}
 	}
 	setParts := []string{}

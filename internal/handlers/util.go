@@ -30,13 +30,13 @@ func GeneratePin(length int) string {
 	if length <= 0 {
 		length = 6
 	}
-	const digits = "0123456789"
+	const digits = "123456789"
 	res := make([]byte, length)
 	for i := 0; i < length; i++ {
 		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(digits))))
 		if err != nil {
-			// fallback: deterministic but unlikely; just use '0'
-			res[i] = '0'
+			// fallback: deterministic but unlikely; just use '1'
+			res[i] = '1'
 			continue
 		}
 		res[i] = digits[n.Int64()]
@@ -50,7 +50,7 @@ func isValidPin6(s *string) bool {
 		return false
 	}
 	for i := 0; i < 6; i++ {
-		if (*s)[i] < '0' || (*s)[i] > '9' {
+		if (*s)[i] < '1' || (*s)[i] > '9' {
 			return false
 		}
 	}
