@@ -88,6 +88,9 @@ func main() {
 	r.GET("/sheet/snapshot", func(c *gin.Context) { c.JSON(http.StatusOK, sheetCache.Snapshot()) })
 
 	h := handlers.New(pool)
+	// LINE Login endpoints
+	r.GET("/auth/line/start", h.StartLineAuth)
+	r.POST("/auth/line/token", h.ExchangeLineToken)
 	r.POST("/shelters", h.CreateShelter)
 	r.GET("/shelters", h.ListShelters)
 	r.GET("/shelters/:id", h.GetShelter)

@@ -158,7 +158,7 @@ func cacheControlForPath(pattern, rawQuery string) string {
 	// private, max-age=xxx: 允許使用者端快取，禁止中介快取 (使用者專屬內容)
 	// must-revalidate: 過期後需重新驗證 (避免過期後繼續使用陳舊內容)
 
-	if strings.HasPrefix(pattern, "/_admin/") || pattern == "/healthz" {
+	if strings.HasPrefix(pattern, "/_admin/") || pattern == "/healthz" || strings.HasPrefix(pattern, "/auth/") {
 		return "no-store"
 	}
 	// Highly dynamic aggregated embedding: disable cache to reflect near real-time changes
