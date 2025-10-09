@@ -202,6 +202,7 @@ func (h *Handler) ListSupplies(c *gin.Context) {
 
 func (h *Handler) GetSupply(c *gin.Context) {
 	id := c.Param("id")
+	isComplete := c.Query("isComplete") == "false"
 	ctx := context.Background()
 	row := h.pool.QueryRow(ctx, `select id,name,address,phone,notes,pii_date,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from supplies where id=$1`, id)
 	var s models.Supply
@@ -223,8 +224,13 @@ func (h *Handler) GetSupply(c *gin.Context) {
 	s.PiiDate = piiDate
 	s.CreatedAt = created
 	s.UpdatedAt = updated
-	// fetch ALL items (could be zero)
-	rows, err := h.pool.Query(ctx, `select id,supply_id,tag,name,received_count,total_number,unit from supply_items where supply_id=$1 order by id asc`, s.ID)
+	// fetch items: if isComplete=false, filter out completed items (received_count == total_number)
+	query := `select id,supply_id,tag,name,received_count,total_number,unit from supply_items where supply_id=$1`
+	if isComplete {
+		query += ` and received_count < total_number`
+	}
+	query += ` order by id asc`
+	rows, err := h.pool.Query(ctx, query, s.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
