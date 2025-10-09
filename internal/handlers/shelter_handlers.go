@@ -51,7 +51,7 @@ func (h *Handler) CreateShelter(c *gin.Context) {
 	ctx := context.Background()
 	var id string
 	var created, updated int64
-	err := h.pool.QueryRow(ctx, `insert into shelters(name,location,phone,link,status,capacity,current_occupancy,available_spaces,facilities,contact_person,notes,opening_hours,coordinates) values($1,$2,$3,$4,$5,$6,$7,$8,$9::text[],$10,$11,$12,$13,$14::jsonb) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
+	err := h.pool.QueryRow(ctx, `insert into shelters(name,location,phone,link,status,capacity,current_occupancy,available_spaces,facilities,contact_person,notes,opening_hours,coordinates) values($1,$2,$3,$4,$5,$6,$7,$8,$9::text[],$10,$11,$12,$13::jsonb) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
 		in.Name, in.Location, in.Phone, in.Link, in.Status, in.Capacity, in.CurrentOccupancy, in.AvailableSpaces, in.Facilities, in.ContactPerson, in.Notes, in.OpeningHours, coordsJSON).Scan(&id, &created, &updated)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
