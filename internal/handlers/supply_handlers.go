@@ -2,12 +2,11 @@ package handlers
 
 import (
 	"context"
+	"guangfu250923/internal/models"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
-
-	"guangfu250923/internal/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -202,7 +201,7 @@ func (h *Handler) ListSupplies(c *gin.Context) {
 
 func (h *Handler) GetSupply(c *gin.Context) {
 	id := c.Param("id")
-	isComplete := c.Query("isComplete") == "false"
+	filterOutComplete := c.Query("filterOutComplete") == "true"
 	ctx := context.Background()
 	row := h.pool.QueryRow(ctx, `select id,name,address,phone,notes,pii_date,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from supplies where id=$1`, id)
 	var s models.Supply
@@ -224,9 +223,9 @@ func (h *Handler) GetSupply(c *gin.Context) {
 	s.PiiDate = piiDate
 	s.CreatedAt = created
 	s.UpdatedAt = updated
-	// fetch items: if isComplete=false, filter out completed items (received_count == total_number)
+	// fetch items: if filterOutComplete=true, filter out completed items (received_count == total_number)
 	query := `select id,supply_id,tag,name,received_count,total_number,unit from supply_items where supply_id=$1`
-	if isComplete {
+	if filterOutComplete {
 		query += ` and received_count < total_number`
 	}
 	query += ` order by id asc`
@@ -287,7 +286,6 @@ func (h *Handler) PatchSupply(c *gin.Context) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "invalid pin"})
 				return
 			}
-
 		}
 	}
 	setParts := []string{}
