@@ -317,7 +317,7 @@ type Place struct {
 	Name              string                   `json:"name"`
 	Address           string                   `json:"address"`
 	AddressDescription *string                 `json:"address_description"`
-	Coordinates       *struct{ Lat *float64 `json:"lat"`; Lng *float64 `json:"lng"` } `json:"coordinates"`
+	Coordinates       map[string]interface{}   `json:"coordinates"`
 	Type              string                   `json:"type"`
 	SubType           *string                  `json:"sub_type"`
 	InfoSources       []string                 `json:"info_sources"`

@@ -2704,10 +2704,7 @@ components:
         address_description: { type: string, nullable: true }
         coordinates:
           type: object
-          nullable: true
-          properties:
-            lat: { type: number, format: double, nullable: true }
-            lng: { type: number, format: double, nullable: true }
+          additionalProperties: true
         type:
           type: string
           description: 類型
@@ -2741,9 +2738,8 @@ components:
         address_description: { type: string, nullable: true }
         coordinates:
           type: object
-          properties:
-            lat: { type: number, format: double, nullable: true }
-            lng: { type: number, format: double, nullable: true }
+          description: 經緯度形狀, 例如 {"type":"Point","coordinates":[121.5,24.1]} 或多邊形/線段等
+          additionalProperties: true
         type:
           type: string
           enum: ['醫療','加水','廁所','洗澡','避難','住宿','物資','心理援助']
@@ -2773,9 +2769,7 @@ components:
         coordinates:
           type: object
           nullable: true
-          properties:
-            lat: { type: number, format: double, nullable: true }
-            lng: { type: number, format: double, nullable: true }
+          additionalProperties: true
         type: { type: string, nullable: true, enum: ['醫療','加水','廁所','洗澡','避難','住宿','物資','心理援助'] }
         sub_type: { type: string, nullable: true }
         info_sources: { type: array, items: { type: string } }

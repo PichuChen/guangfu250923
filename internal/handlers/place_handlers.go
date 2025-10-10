@@ -18,10 +18,7 @@ type placeCreateInput struct {
     Name               string    `json:"name" binding:"required"`
     Address            string    `json:"address" binding:"required"`
     AddressDescription *string   `json:"address_description"`
-    Coordinates        *struct {
-        Lat *float64 `json:"lat"`
-        Lng *float64 `json:"lng"`
-    } `json:"coordinates" binding:"required"`
+    Coordinates        map[string]interface{} `json:"coordinates" binding:"required"`
     Type         string    `json:"type" binding:"required"`
     SubType      *string   `json:"sub_type"`
     InfoSources  []string  `json:"info_sources"`
@@ -48,11 +45,9 @@ func (h *Handler) CreatePlace(c *gin.Context) {
     }
     // Status/type validation is enforced by DB constraint; we can do light checks here if desired.
     var coordsJSON *string
-    if in.Coordinates != nil {
-        if b, err := json.Marshal(in.Coordinates); err == nil {
-            s := string(b)
-            coordsJSON = &s
-        }
+    if b, err := json.Marshal(in.Coordinates); err == nil {
+        s := string(b)
+        coordsJSON = &s
     }
     var resourcesJSON, tagsJSON, addInfoJSON *string
     if in.Resources != nil {
@@ -100,7 +95,7 @@ func (h *Handler) CreatePlace(c *gin.Context) {
 func (h *Handler) GetPlace(c *gin.Context) {
     id := c.Param("id")
     ctx := context.Background()
-    row := h.pool.QueryRow(ctx, `select id,name,address,address_description,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,
+    row := h.pool.QueryRow(ctx, `select id,name,address,address_description,coordinates,
         type,sub_type,info_sources,verified_at,website_url,status,resources,tags,additional_info,open_date,end_date,open_time,end_time,contact_name,contact_phone,
         extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from places where id=$1`, id)
     var p models.Place
@@ -109,10 +104,10 @@ func (h *Handler) GetPlace(c *gin.Context) {
     var verifiedAt *int64
     var openDate, endDate, openTime, endTime *string
     var contactName, contactPhone string
-    var lat, lng *float64
+    var coordsJSONRaw []byte
     var created, updated int64
     var resourcesJSON, tagsJSON, addInfoJSON []byte
-    if err := row.Scan(&p.ID, &p.Name, &p.Address, &addrDesc, &lat, &lng, &p.Type, &subType, &infoSources, &verifiedAt, &websiteURL, &p.Status, &resourcesJSON, &tagsJSON, &addInfoJSON, &openDate, &endDate, &openTime, &endTime, &contactName, &contactPhone, &created, &updated); err != nil {
+    if err := row.Scan(&p.ID, &p.Name, &p.Address, &addrDesc, &coordsJSONRaw, &p.Type, &subType, &infoSources, &verifiedAt, &websiteURL, &p.Status, &resourcesJSON, &tagsJSON, &addInfoJSON, &openDate, &endDate, &openTime, &endTime, &contactName, &contactPhone, &created, &updated); err != nil {
         if err == pgx.ErrNoRows {
             c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
             return
@@ -133,8 +128,10 @@ func (h *Handler) GetPlace(c *gin.Context) {
     p.ContactPhone = contactPhone
     p.CreatedAt = created
     p.UpdatedAt = updated
-    if lat != nil || lng != nil {
-        p.Coordinates = &struct{ Lat *float64 `json:"lat"`; Lng *float64 `json:"lng"` }{Lat: lat, Lng: lng}
+    if len(coordsJSONRaw) > 0 {
+        var obj map[string]interface{}
+        _ = json.Unmarshal(coordsJSONRaw, &obj)
+        p.Coordinates = obj
     }
     if len(resourcesJSON) > 0 {
         var arr []map[string]interface{}
@@ -172,7 +169,7 @@ func (h *Handler) ListPlaces(c *gin.Context) {
         args = append(args, typ)
     }
     countQ := "select count(*) from places"
-    dataQ := "select id,name,address,address_description,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng, type,sub_type,info_sources,verified_at,website_url,status,resources,tags,additional_info,open_date,end_date,open_time,end_time,contact_name,contact_phone,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from places"
+    dataQ := "select id,name,address,address_description,coordinates, type,sub_type,info_sources,verified_at,website_url,status,resources,tags,additional_info,open_date,end_date,open_time,end_time,contact_name,contact_phone,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from places"
     if len(filters) > 0 {
         where := " where " + strings.Join(filters, " and ")
         countQ += where
@@ -199,10 +196,10 @@ func (h *Handler) ListPlaces(c *gin.Context) {
         var verifiedAt *int64
         var openDate, endDate, openTime, endTime *string
         var contactName, contactPhone string
-        var lat, lng *float64
+    var coordsJSONRaw []byte
         var created, updated int64
         var resourcesJSON, tagsJSON, addInfoJSON []byte
-        if err := rows.Scan(&p.ID, &p.Name, &p.Address, &addrDesc, &lat, &lng, &p.Type, &subType, &infoSources, &verifiedAt, &websiteURL, &p.Status, &resourcesJSON, &tagsJSON, &addInfoJSON, &openDate, &endDate, &openTime, &endTime, &contactName, &contactPhone, &created, &updated); err != nil {
+    if err := rows.Scan(&p.ID, &p.Name, &p.Address, &addrDesc, &coordsJSONRaw, &p.Type, &subType, &infoSources, &verifiedAt, &websiteURL, &p.Status, &resourcesJSON, &tagsJSON, &addInfoJSON, &openDate, &endDate, &openTime, &endTime, &contactName, &contactPhone, &created, &updated); err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
         }
@@ -219,8 +216,10 @@ func (h *Handler) ListPlaces(c *gin.Context) {
         p.ContactPhone = contactPhone
         p.CreatedAt = created
         p.UpdatedAt = updated
-        if lat != nil || lng != nil {
-            p.Coordinates = &struct{ Lat *float64 `json:"lat"`; Lng *float64 `json:"lng"` }{Lat: lat, Lng: lng}
+        if len(coordsJSONRaw) > 0 {
+            var obj map[string]interface{}
+            _ = json.Unmarshal(coordsJSONRaw, &obj)
+            p.Coordinates = obj
         }
         if len(resourcesJSON) > 0 {
             var arr []map[string]interface{}
@@ -264,7 +263,7 @@ type placePatchInput struct {
     Name               *string   `json:"name"`
     Address            *string   `json:"address"`
     AddressDescription *string   `json:"address_description"`
-    Coordinates        *struct { Lat *float64 `json:"lat"`; Lng *float64 `json:"lng"` } `json:"coordinates"`
+    Coordinates        *map[string]interface{} `json:"coordinates"`
     Type         *string  `json:"type"`
     SubType      *string  `json:"sub_type"`
     InfoSources  *[]string `json:"info_sources"`
@@ -319,7 +318,7 @@ func (h *Handler) PatchPlace(c *gin.Context) {
     if in.AdditionalInfo != nil { if b, err := json.Marshal(in.AdditionalInfo); err == nil { setParts = append(setParts, "additional_info=$"+strconv.Itoa(idx)+"::jsonb"); args = append(args, string(b)); idx++ } }
     if len(setParts) == 0 { c.JSON(http.StatusBadRequest, gin.H{"error": "no fields"}); return }
     setParts = append(setParts, "updated_at=now()")
-    query := "update places set "+strings.Join(setParts, ",")+" where id=$"+strconv.Itoa(idx)+" returning id,name,address,address_description,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,type,sub_type,info_sources,verified_at,website_url,status,resources,tags,additional_info,open_date,end_date,open_time,end_time,contact_name,contact_phone,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
+    query := "update places set "+strings.Join(setParts, ",")+" where id=$"+strconv.Itoa(idx)+" returning id,name,address,address_description,coordinates,type,sub_type,info_sources,verified_at,website_url,status,resources,tags,additional_info,open_date,end_date,open_time,end_time,contact_name,contact_phone,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
     args = append(args, id)
     row := h.pool.QueryRow(ctx, query, args...)
     var p models.Place
@@ -328,10 +327,10 @@ func (h *Handler) PatchPlace(c *gin.Context) {
     var verifiedAt *int64
     var openDate, endDate, openTime, endTime *string
     var contactName, contactPhone string
-    var lat, lng *float64
+    var coordsJSONRaw []byte
     var created, updated int64
     var resourcesJSON, tagsJSON, addInfoJSON []byte
-    if err := row.Scan(&p.ID, &p.Name, &p.Address, &addrDesc, &lat, &lng, &p.Type, &subType, &infoSources, &verifiedAt, &websiteURL, &p.Status, &resourcesJSON, &tagsJSON, &addInfoJSON, &openDate, &endDate, &openTime, &endTime, &contactName, &contactPhone, &created, &updated); err != nil {
+    if err := row.Scan(&p.ID, &p.Name, &p.Address, &addrDesc, &coordsJSONRaw, &p.Type, &subType, &infoSources, &verifiedAt, &websiteURL, &p.Status, &resourcesJSON, &tagsJSON, &addInfoJSON, &openDate, &endDate, &openTime, &endTime, &contactName, &contactPhone, &created, &updated); err != nil {
         if err == pgx.ErrNoRows { c.JSON(http.StatusNotFound, gin.H{"error": "not found"}); return }
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return
     }
@@ -348,7 +347,7 @@ func (h *Handler) PatchPlace(c *gin.Context) {
     p.ContactPhone = contactPhone
     p.CreatedAt = created
     p.UpdatedAt = updated
-    if lat != nil || lng != nil { p.Coordinates = &struct{ Lat *float64 `json:"lat"`; Lng *float64 `json:"lng"` }{Lat: lat, Lng: lng} }
+    if len(coordsJSONRaw) > 0 { var obj map[string]interface{}; _ = json.Unmarshal(coordsJSONRaw, &obj); p.Coordinates = obj }
     if len(resourcesJSON) > 0 { var arr []map[string]interface{}; _ = json.Unmarshal(resourcesJSON, &arr); p.Resources = arr }
     if len(tagsJSON) > 0 { var arr []map[string]interface{}; _ = json.Unmarshal(tagsJSON, &arr); p.Tags = arr }
     if len(addInfoJSON) > 0 { var m map[string]interface{}; _ = json.Unmarshal(addInfoJSON, &m); p.AdditionalInfo = m }
