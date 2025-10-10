@@ -273,6 +273,17 @@ type SupplyItem struct {
 	Unit          *string `json:"unit"`
 }
 
+// Photo stores metadata for uploaded images, while the actual file lives in R2/S3.
+type Photo struct {
+	ID               string `json:"id"`
+	ObjectKey        string `json:"object_key"`
+	OriginalFilename string `json:"original_filename"`
+	ContentType      string `json:"content_type"`
+	Size             int64  `json:"size"`
+	PublicURL        string `json:"public_url"`
+	CreatedAt        int64  `json:"created_at"`
+}
+
 // SupplyProvider represents supply_providers table row
 type SupplyProvider struct {
 	ID            string `json:"id"`

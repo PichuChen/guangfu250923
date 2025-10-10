@@ -363,6 +363,33 @@ paths:
       responses:
         '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/Report' } } } }
         '404': { description: 找不到 }
+  /uploads/photos:
+    post:
+      operationId: uploadPhoto
+      summary: 上傳照片
+      description: 以 multipart/form-data 上傳照片，回傳可公開存取的 URL。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: 建立成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, description: 照片的公開 ID (uuidv7) }
+                  path: { type: string, description: 取得圖片的相對路徑 (/photos/{id}) }
+                  content_type: { type: string }
+                  size: { type: integer }
     patch:
       operationId: patchReport
       summary: 更新回報事件 (部分欄位)
@@ -380,6 +407,33 @@ paths:
       responses:
         '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/Report' } } } }
         '400': { description: 輸入錯誤 }
+        '404': { description: 找不到 }
+  /photos/{id}:
+    get:
+      operationId: getPhoto
+      summary: 取得照片（可指定縮圖大小）
+      description: 依 ID 取得照片；可用 query 參數 thumbnail 指定 small/medium/large/original（預設 medium）。可能直接回傳圖片內容 (200) 或 302 重新導向至簽名 URL / 公開 URL。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: thumbnail
+          required: false
+          schema:
+            type: string
+            enum: [small, medium, large, original]
+          description: 縮圖大小，預設 medium。對應寬度 small=w100, medium=w300, large=w1200；original 為原圖。
+      responses:
+        '200':
+          description: 圖片內容
+          content:
+            image/jpeg: {}
+            image/png: {}
+            image/webp: {}
+        '302': { description: 重新導向至圖片網址 }
+        '400': { description: 參數錯誤 }
         '404': { description: 找不到 }
   /spam_results:
     get:

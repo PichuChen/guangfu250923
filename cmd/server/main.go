@@ -16,6 +16,7 @@ import (
 	"guangfu250923/internal/handlers"
 	"guangfu250923/internal/middleware"
 	"guangfu250923/internal/sheetcache"
+	"guangfu250923/internal/storage"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -99,7 +100,18 @@ func main() {
 	sheetCache.StartPolling(pollCtx, cfg.SheetInterval)
 	r.GET("/sheet/snapshot", func(c *gin.Context) { c.JSON(http.StatusOK, sheetCache.Snapshot()) })
 
-	h := handlers.New(pool)
+	// Setup S3 uploader (optional; if not configured, photo upload will return 503)
+	var uploader *storage.S3Uploader
+	if cfg.S3Bucket != "" {
+		up, err := storage.NewS3Uploader(context.Background(), cfg)
+		if err != nil {
+			slog.Error("s3 uploader init failed", "err", err)
+		} else {
+			uploader = up
+		}
+	}
+
+	h := handlers.New(pool, uploader)
 	// LINE Login endpoints
 	r.GET("/auth/line/start", h.StartLineAuth)
 	r.POST("/auth/line/token", h.ExchangeLineToken)
@@ -228,6 +240,11 @@ func main() {
 	r.GET("/requirements_supplies/:id", h.GetRequirementsSupplies)
 	r.DELETE("/requirements_supplies/:id", middleware.ModifyAPIKeyRequired(), h.DeleteRequirementsSupplies)
 	r.PATCH("/requirements_supplies/:id", middleware.ModifyAPIKeyRequired(), h.PatchRequirementsSupplies)
+
+	// Photo upload endpoint for disaster victims (protected by Turnstile if enabled)
+	r.POST("/uploads/photos", h.UploadPhoto)
+	// Public photo route using uuidv7 id stored in DB (supports ?thumbnail=small|medium|large|original)
+	r.GET("/photos/:id", h.GetPhoto)
 
 	// Turnstile test endpoint (POST only): echo JSON payload for frontend debugging
 	r.POST("/__test_turnstile", middleware.TurnstileVerifier(), func(c *gin.Context) {

@@ -303,6 +303,17 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
         end $$;`,
 		`create index if not exists idx_request_logs_created_at on request_logs(created_at)`,
 		`create index if not exists idx_request_logs_status_code on request_logs(status_code)`,
+		// Photos table for user uploads (Cloudflare R2 / S3-compatible)
+		`create table if not exists photos (
+            id text primary key default gen_random_uuid()::text,
+            object_key text not null,
+            original_filename text not null,
+            content_type text not null,
+            size bigint not null,
+            public_url text not null,
+            created_at timestamptz not null default now()
+        )`,
+		`create index if not exists idx_photos_created_at on photos(created_at)`,
 		// Reports table
 		`create table if not exists reports (
             id text primary key,

@@ -53,11 +53,15 @@ func RequestLogger(pool *pgxpool.Pool, maxHeaderBytes int) gin.HandlerFunc {
 
 		var rawBody []byte
 		if c.Request.Body != nil && (c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPatch) {
-			// read and replace body so handler can still consume
-			bodyBytes, _ := io.ReadAll(io.LimitReader(c.Request.Body, 256*1024))
-			rawBody = bodyBytes
-			c.Request.Body.Close()
-			c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			// Avoid touching multipart/form-data bodies; let handlers parse them directly
+			ct := c.GetHeader("Content-Type")
+			if !strings.HasPrefix(strings.ToLower(ct), "multipart/") {
+				// read and replace body so handler can still consume
+				bodyBytes, _ := io.ReadAll(io.LimitReader(c.Request.Body, 256*1024))
+				rawBody = bodyBytes
+				c.Request.Body.Close()
+				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
 		}
 
 		var originalData json.RawMessage
