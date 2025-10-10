@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -46,17 +47,35 @@ func CacheHeaders(maxBody int) gin.HandlerFunc {
 		}
 
 		body := rw.buf.Bytes()
+		// Decide strong vs weak ETag based on path: only requests under /photos/* get strong ETag
+		pattern := c.FullPath()
+		if pattern == "" {
+			pattern = c.Request.URL.Path
+		}
+		isPhoto := strings.HasPrefix(pattern, "/photos")
+
 		h := sha256.Sum256(body)
-		etag := "W/\"" + hex.EncodeToString(h[:8]) + "\""
+		var etagHeader string
+		var rawTag string // normalized tag for comparison
+		if isPhoto {
+			// Strong ETag: full SHA-256
+			rawTag = hex.EncodeToString([]byte(c.FullPath()))
+			etagHeader = fmt.Sprintf("\"%s\"", rawTag)
+		} else {
+			// Weak ETag: shorter tag
+			rawTag = hex.EncodeToString(h[:8])
+			etagHeader = fmt.Sprintf("W/\"%s\"", rawTag)
+		}
 		hdr := rw.Header()
 
 		// Handle conditional If-None-Match
 		if inm := c.Request.Header.Get("If-None-Match"); inm != "" {
 			parts := strings.Split(inm, ",")
 			for _, p := range parts {
-				if strings.TrimSpace(p) == etag {
+				tok := normalizeETagToken(p)
+				if tok == rawTag {
 					hdr.Del("Content-Length")
-					hdr.Set("ETag", etag)
+					hdr.Set("ETag", etagHeader)
 					if hdr.Get("Cache-Control") == "" {
 						hdr.Set("Cache-Control", cacheControlForPath(c.FullPath(), c.Request.URL.RawQuery))
 					}
@@ -70,7 +89,7 @@ func CacheHeaders(maxBody int) gin.HandlerFunc {
 			}
 		}
 
-		hdr.Set("ETag", etag)
+		hdr.Set("ETag", etagHeader)
 		if hdr.Get("Cache-Control") == "" {
 			hdr.Set("Cache-Control", cacheControlForPath(c.FullPath(), c.Request.URL.RawQuery))
 		}
@@ -157,6 +176,11 @@ func cacheControlForPath(pattern, rawQuery string) string {
 	// public, max-age=xxx: 允許公開快取，適合不常變更的靜態內容 (大部分 GET API)
 	// private, max-age=xxx: 允許使用者端快取，禁止中介快取 (使用者專屬內容)
 	// must-revalidate: 過期後需重新驗證 (避免過期後繼續使用陳舊內容)
+	// immutable: 不會變更的內容，允許長期快取
+	if strings.HasPrefix(pattern, "/photos/") {
+		// 照片內容不常變更，允許公開快取三天
+		return "public, max-age=31536000, immutable"
+	}
 
 	if strings.HasPrefix(pattern, "/_admin/") || pattern == "/healthz" || strings.HasPrefix(pattern, "/auth/") {
 		return "no-store"
@@ -180,4 +204,18 @@ func cacheControlForPath(pattern, rawQuery string) string {
 	// }
 	// default short cache
 	return "public, no-cache"
+}
+
+// normalizeETagToken strips weak validators and quotes, returning the raw tag for comparison.
+func normalizeETagToken(token string) string {
+	t := strings.TrimSpace(token)
+	// Strip weak prefix W/
+	if strings.HasPrefix(t, "W/") || strings.HasPrefix(t, "w/") {
+		t = strings.TrimSpace(t[2:])
+	}
+	// Remove surrounding quotes if present
+	if len(t) >= 2 && t[0] == '"' && t[len(t)-1] == '"' {
+		t = t[1 : len(t)-1]
+	}
+	return t
 }

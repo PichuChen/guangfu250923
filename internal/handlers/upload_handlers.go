@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,11 +14,12 @@ import (
 	"log/slog"
 
 	"guangfu250923/internal/localcache"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"image"
 	"image/jpeg"
 	"image/png"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // UploadPhoto accepts multipart/form-data with a file field named "file" and uploads to S3.
@@ -191,7 +192,6 @@ func (h *Handler) GetPhoto(c *gin.Context) {
 		spec := fmt.Sprintf("w%d", targetWidth)
 		thumbPath := localcache.ThumbPath(objectKey, spec)
 		if localcache.Exists(thumbPath) {
-			c.Header("Cache-Control", "public, max-age=31536000, immutable")
 			c.File(thumbPath)
 			return
 		}
@@ -199,57 +199,51 @@ func (h *Handler) GetPhoto(c *gin.Context) {
 		srcPath := localcache.PhotoPath(objectKey)
 		var src io.ReadCloser
 		if localcache.Exists(srcPath) {
-			if f, err := os.Open(srcPath); err == nil { src = f }
+			if f, err := os.Open(srcPath); err == nil {
+				src = f
+			}
 		}
 		if src == nil && h.s3 != nil {
-			if rc, _, _, err := h.s3.GetObject(c.Request.Context(), objectKey); err == nil { src = rc }
+			if rc, _, _, err := h.s3.GetObject(c.Request.Context(), objectKey); err == nil {
+				src = rc
+			}
 		}
 		if src == nil {
-			// Fallback: presign to original if source unavailable
-			if h.s3 != nil {
-				if presigned, perr := h.s3.PresignGet(c.Request.Context(), objectKey, 5*time.Minute); perr == nil {
-					c.Header("Cache-Control", "private, max-age=60")
-					c.Redirect(http.StatusFound, presigned)
-					return
-				}
-			}
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "source unavailable"})
 			return
 		}
 		defer src.Close()
 
 		data, err := io.ReadAll(io.LimitReader(src, 32<<20))
-		if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"read failed"}); return }
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "read failed"})
+			return
+		}
 		img, format, err := image.Decode(bytes.NewReader(data))
 		if err != nil {
-			// Unsupported by stdlib: fallback to presigned
-			if h.s3 != nil {
-				if presigned, perr := h.s3.PresignGet(c.Request.Context(), objectKey, 5*time.Minute); perr == nil {
-					c.Header("Cache-Control", "private, max-age=60")
-					c.Redirect(http.StatusFound, presigned)
-					return
-				}
-			}
-			c.JSON(http.StatusBadRequest, gin.H{"error":"decode failed"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "decode failed"})
 			return
 		}
 		b := img.Bounds()
 		if b.Dx() <= targetWidth {
 			// No upscale; cache original bytes into thumb path for consistency
 			if err := localcache.Save(thumbPath, bytes.NewReader(data)); err == nil {
-				c.Header("Cache-Control", "public, max-age=31536000, immutable")
 				c.File(thumbPath)
 				return
 			}
 			// If saving failed, just return original bytes
 			ct := contentType
-			if ct == "" { ct = http.DetectContentType(data) }
+			if ct == "" {
+				ct = http.DetectContentType(data)
+			}
 			c.Data(http.StatusOK, ct, data)
 			return
 		}
 		height := int(float64(b.Dy()) * (float64(targetWidth) / float64(b.Dx())))
-		if height <= 0 { height = 1 }
-		dst := image.NewRGBA(image.Rect(0,0,targetWidth,height))
+		if height <= 0 {
+			height = 1
+		}
+		dst := image.NewRGBA(image.Rect(0, 0, targetWidth, height))
 		for y := 0; y < height; y++ {
 			sy := y * b.Dy() / height
 			for x := 0; x < targetWidth; x++ {
@@ -260,17 +254,21 @@ func (h *Handler) GetPhoto(c *gin.Context) {
 		buf := new(bytes.Buffer)
 		ct := "image/jpeg"
 		if format == "png" {
-			if err := png.Encode(buf, dst); err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"encode failed"}); return }
+			if err := png.Encode(buf, dst); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "encode failed"})
+				return
+			}
 			ct = "image/png"
 		} else {
-			if err := jpeg.Encode(buf, dst, &jpeg.Options{Quality: 75}); err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"encode failed"}); return }
+			if err := jpeg.Encode(buf, dst, &jpeg.Options{Quality: 75}); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "encode failed"})
+				return
+			}
 		}
 		if err := localcache.Save(thumbPath, bytes.NewReader(buf.Bytes())); err == nil {
-			c.Header("Cache-Control", "public, max-age=31536000, immutable")
 			c.Data(http.StatusOK, ct, buf.Bytes())
 			return
 		}
-		c.Header("Cache-Control", "private, max-age=60")
 		c.Data(http.StatusOK, ct, buf.Bytes())
 		return
 	}
@@ -279,38 +277,40 @@ func (h *Handler) GetPhoto(c *gin.Context) {
 	// Determine local cache path
 	cachePath := localcache.PhotoPath(objectKey)
 	if localcache.Exists(cachePath) {
-		if contentType != "" { c.Header("Content-Type", contentType) }
-		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		if contentType != "" {
+			c.Header("Content-Type", contentType)
+		}
 		c.File(cachePath)
 		return
 	}
-	if h.s3 != nil {
-		if rc, s3CT, _, err := h.s3.GetObject(c.Request.Context(), objectKey); err == nil {
-			defer rc.Close()
-			if werr := localcache.Save(cachePath, rc); werr == nil {
-				if contentType == "" { contentType = s3CT }
-				if contentType != "" { c.Header("Content-Type", contentType) }
-				c.Header("Cache-Control", "public, max-age=31536000, immutable")
-				c.File(cachePath)
-				return
+	if rc, s3CT, _, err := h.s3.GetObject(c.Request.Context(), objectKey); err == nil {
+		defer rc.Close()
+		if werr := localcache.Save(cachePath, rc); werr == nil {
+			if contentType == "" {
+				contentType = s3CT
 			}
-			// If saving failed, re-fetch and stream without cache
-			if rc2, s3CT2, _, err2 := h.s3.GetObject(c.Request.Context(), objectKey); err2 == nil {
-				defer rc2.Close()
-				if contentType == "" { contentType = s3CT2 }
-				if contentType != "" { c.Header("Content-Type", contentType) }
-				c.Header("Cache-Control", "private, max-age=60")
-				if _, copyErr := io.Copy(c.Writer, rc2); copyErr == nil { c.Status(http.StatusOK); return }
+			if contentType != "" {
+				c.Header("Content-Type", contentType)
 			}
-		}
-		if presigned, perr := h.s3.PresignGet(c.Request.Context(), objectKey, 5*time.Minute); perr == nil {
-			c.Header("Cache-Control", "private, max-age=60")
-			c.Redirect(http.StatusFound, presigned)
+			c.File(cachePath)
 			return
 		}
+		// If saving failed, re-fetch and stream without cache
+		if rc2, s3CT2, _, err2 := h.s3.GetObject(c.Request.Context(), objectKey); err2 == nil {
+			defer rc2.Close()
+			if contentType == "" {
+				contentType = s3CT2
+			}
+			if contentType != "" {
+				c.Header("Content-Type", contentType)
+			}
+			if _, copyErr := io.Copy(c.Writer, rc2); copyErr == nil {
+				c.Status(http.StatusOK)
+				return
+			}
+		}
 	}
-	c.Header("Cache-Control", "public, max-age=31536000, immutable")
-	c.Redirect(http.StatusFound, url)
+
 }
 
 // GetPhotoThumbnail generates/serves a cached thumbnail for a photo.
@@ -330,11 +330,19 @@ func (h *Handler) GetPhotoThumbnail(c *gin.Context) {
 	}
 	var width int
 	for _, ch := range widthStr {
-		if ch < '0' || ch > '9' { c.JSON(http.StatusBadRequest, gin.H{"error":"invalid width"}); return }
+		if ch < '0' || ch > '9' {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid width"})
+			return
+		}
 	}
 	// Simple Atoi without importing strconv
-	for i := 0; i < len(widthStr); i++ { width = width*10 + int(widthStr[i]-'0') }
-	if width <= 0 || width > 4096 { c.JSON(http.StatusBadRequest, gin.H{"error":"width out of range"}); return }
+	for i := 0; i < len(widthStr); i++ {
+		width = width*10 + int(widthStr[i]-'0')
+	}
+	if width <= 0 || width > 4096 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "width out of range"})
+		return
+	}
 
 	var objectKey, contentType string
 	if err := h.pool.QueryRow(c.Request.Context(), `select object_key, content_type from photos where id=$1`, id).Scan(&objectKey, &contentType); err != nil {
@@ -344,7 +352,6 @@ func (h *Handler) GetPhotoThumbnail(c *gin.Context) {
 
 	thumbPath := localcache.ThumbPath(objectKey, spec)
 	if localcache.Exists(thumbPath) {
-		c.Header("Cache-Control", "public, max-age=31536000, immutable")
 		c.File(thumbPath)
 		return
 	}
@@ -354,22 +361,18 @@ func (h *Handler) GetPhotoThumbnail(c *gin.Context) {
 	var src io.ReadCloser
 	if localcache.Exists(srcPath) {
 		f, err := os.Open(srcPath)
-		if err == nil { src = f }
+		if err == nil {
+			src = f
+		}
 	}
 	// Else fetch from S3
 	if src == nil && h.s3 != nil {
 		rc, _, _, err := h.s3.GetObject(c.Request.Context(), objectKey)
-		if err == nil { src = rc }
+		if err == nil {
+			src = rc
+		}
 	}
 	if src == nil {
-		// As a last resort, presign redirect to original (client can downscale)
-		if h.s3 != nil {
-			if presigned, perr := h.s3.PresignGet(c.Request.Context(), objectKey, 5*time.Minute); perr == nil {
-				c.Header("Cache-Control", "private, max-age=60")
-				c.Redirect(http.StatusFound, presigned)
-				return
-			}
-		}
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "source unavailable"})
 		return
 	}
@@ -379,19 +382,14 @@ func (h *Handler) GetPhotoThumbnail(c *gin.Context) {
 	// We use the standard library for decode( png/jpeg ) and a simple nearest-neighbor scale to avoid heavy deps.
 	// If performance/quality is insufficient, we can swap to github.com/disintegration/imaging later.
 	data, err := io.ReadAll(io.LimitReader(src, 32<<20)) // limit 32MB decode for safety
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"read failed"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "read failed"})
+		return
+	}
 
 	img, format, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		// Unsupported format by stdlib: fallback to presigned
-		if h.s3 != nil {
-			if presigned, perr := h.s3.PresignGet(c.Request.Context(), objectKey, 5*time.Minute); perr == nil {
-				c.Header("Cache-Control", "private, max-age=60")
-				c.Redirect(http.StatusFound, presigned)
-				return
-			}
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error":"decode failed"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "decode failed"})
 		return
 	}
 	b := img.Bounds()
@@ -399,7 +397,6 @@ func (h *Handler) GetPhotoThumbnail(c *gin.Context) {
 		// No upscale; just return original cached or newly cached original
 		// Save original to thumbPath (copy) to unify caching
 		if err := localcache.Save(thumbPath, bytes.NewReader(data)); err == nil {
-			c.Header("Cache-Control", "public, max-age=31536000, immutable")
 			c.File(thumbPath)
 			return
 		}
@@ -408,10 +405,12 @@ func (h *Handler) GetPhotoThumbnail(c *gin.Context) {
 	}
 	// Compute proportional height
 	height := int(float64(b.Dy()) * (float64(width) / float64(b.Dx())))
-	if height <= 0 { height = 1 }
+	if height <= 0 {
+		height = 1
+	}
 
 	// Simple nearest-neighbor scaling
-	dst := image.NewRGBA(image.Rect(0,0,width,height))
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
 	for y := 0; y < height; y++ {
 		sy := y * b.Dy() / height
 		for x := 0; x < width; x++ {
@@ -425,20 +424,23 @@ func (h *Handler) GetPhotoThumbnail(c *gin.Context) {
 	ct := "image/jpeg"
 	if format == "png" {
 		// Try to preserve PNG if likely transparency; for simplicity, encode PNG always here
-		if err := png.Encode(buf, dst); err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"encode failed"}); return }
+		if err := png.Encode(buf, dst); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "encode failed"})
+			return
+		}
 		ct = "image/png"
 	} else {
 		// Use default quality ~75
-		if err := jpeg.Encode(buf, dst, &jpeg.Options{Quality: 75}); err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error":"encode failed"}); return }
+		if err := jpeg.Encode(buf, dst, &jpeg.Options{Quality: 75}); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "encode failed"})
+			return
+		}
 	}
 
 	// Cache and serve
 	if err := localcache.Save(thumbPath, bytes.NewReader(buf.Bytes())); err == nil {
-		c.Header("Cache-Control", "public, max-age=31536000, immutable")
 		c.Data(http.StatusOK, ct, buf.Bytes())
 		return
 	}
-	c.Header("Cache-Control", "private, max-age=60")
 	c.Data(http.StatusOK, ct, buf.Bytes())
 }
- 
