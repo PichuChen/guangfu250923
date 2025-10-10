@@ -165,16 +165,19 @@ func cacheControlForPath(pattern, rawQuery string) string {
 	if pattern == "/supplies" || pattern == "/human_resources" {
 		// 需要即時回應
 		return "public, no-cache"
+	} else if strings.HasPrefix(pattern, "/supplies") || strings.HasPrefix(pattern, "/human_resources") {
+		// 需要即時回應
+		return "public, no-cache"
 	}
 	// list endpoints usually have limit/offset
-	if strings.Contains(rawQuery, "offset=") || strings.Contains(rawQuery, "limit=") {
-		// 廁所等等，不需要及時變更
-		return "public, max-age=300"
-	}
+	// if strings.Contains(rawQuery, "offset=") || strings.Contains(rawQuery, "limit=") {
+	// 	// 廁所等等，不需要及時變更
+	// 	return "public, max-age=300"
+	// }
 	// entity endpoints (contain :id)
-	if strings.Contains(pattern, ":id") {
-		return "public, max-age=60"
-	}
+	// if strings.Contains(pattern, ":id") {
+	// 	return "public, max-age=60"
+	// }
 	// default short cache
-	return "public, max-age=30"
+	return "public, no-cache"
 }

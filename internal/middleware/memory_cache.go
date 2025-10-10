@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -79,14 +80,41 @@ func MemoryCache(ttl time.Duration, maxBody int) gin.HandlerFunc {
 		store.mu.RLock()
 		if ent, ok := store.items[key]; ok {
 			if time.Now().Before(ent.expires) {
+
+				// 檢查如果 Request 有 If-None-Match 標頭，且與緩存的 ETag 匹配，則返回 304 Not Modified
+				if inm := c.Request.Header.Get("If-None-Match"); inm != "" {
+					etag := ent.header.Get("ETag")
+					parts := strings.Split(inm, ",")
+					for _, p := range parts {
+						if strings.TrimSpace(p) == etag {
+
+							c.Writer.Header().Set("ETag", etag)
+							if c.Writer.Header().Get("Cache-Control") == "" {
+								c.Writer.Header().Set("Cache-Control", cacheControlForPath(c.FullPath(), c.Request.URL.RawQuery))
+							}
+							c.Writer.Header().Set("Vary", "Accept-Encoding")
+							if c.Writer.Header().Get("Last-Modified") == "" {
+								c.Writer.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+							}
+							c.Writer.WriteHeader(http.StatusNotModified)
+							store.mu.RUnlock()
+							// Abort so downstream handlers/middlewares are not executed
+							c.Abort()
+							return
+						}
+					}
+				}
+
 				// serve cached
 				for k, vals := range ent.header {
 					// Overwrite existing header values to cached ones
 					c.Writer.Header().Del(k)
 					for _, v := range vals {
+						slog.Info("memory cache hit", "header", k, "value", v)
 						c.Writer.Header().Add(k, v)
 					}
 				}
+
 				c.Writer.WriteHeader(ent.status)
 				if len(ent.body) > 0 {
 					c.Writer.Write(ent.body)
@@ -100,12 +128,15 @@ func MemoryCache(ttl time.Duration, maxBody int) gin.HandlerFunc {
 		store.mu.RUnlock()
 
 		// Cache miss: capture response
-		rec := &memRecorder{ResponseWriter: c.Writer, status: 200, limit: maxBody}
+		rec := &memRecorder{ResponseWriter: c.Writer, limit: maxBody}
 		c.Writer = rec
 		c.Next()
 
+		status := c.Writer.Status()
+		slog.Info("memory cache miss", "path", c.Request.URL.Path, "status", status, "size", rec.buf.Len(), "exceeded", rec.exceeded)
+
 		// Only cache successful 200 OK
-		if rec.status != http.StatusOK {
+		if status != http.StatusOK {
 			return
 		}
 		// Skip if exceeded size cap
@@ -122,7 +153,7 @@ func MemoryCache(ttl time.Duration, maxBody int) gin.HandlerFunc {
 		bodyCopy := make([]byte, rec.buf.Len())
 		copy(bodyCopy, rec.buf.Bytes())
 
-		ent := &memoryCacheEntry{status: rec.status, header: hdr, body: bodyCopy, expires: time.Now().Add(ttl), size: len(bodyCopy)}
+		ent := &memoryCacheEntry{status: status, header: hdr, body: bodyCopy, expires: time.Now().Add(ttl), size: len(bodyCopy)}
 
 		store.mu.Lock()
 		store.items[key] = ent
@@ -140,7 +171,22 @@ type memRecorder struct {
 }
 
 func (r *memRecorder) WriteHeader(code int) {
+	slog.Info("memRecorder WriteHeader", "code", code)
 	r.status = code
+
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *memRecorder) WriteString(s string) (int, error) {
+	if !r.exceeded {
+		if r.buf.Len()+len(s) > r.limit {
+			r.exceeded = true
+			// do not cache; but still pass through
+		} else {
+			r.buf.WriteString(s)
+		}
+	}
+	return r.ResponseWriter.WriteString(s)
 }
 func (r *memRecorder) Write(b []byte) (int, error) {
 	if !r.exceeded {
