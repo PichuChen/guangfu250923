@@ -363,6 +363,24 @@ paths:
       responses:
         '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/Report' } } } }
         '404': { description: 找不到 }
+    patch:
+      operationId: patchReport
+      summary: 更新回報事件 (部分欄位)
+      description: 部分更新事件欄位；未提供之欄位不變。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReportPatch' }
+      responses:
+        '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/Report' } } } }
+        '400': { description: 輸入錯誤 }
+        '404': { description: 找不到 }
   /uploads/photos:
     post:
       operationId: uploadPhoto
@@ -387,27 +405,9 @@ paths:
                 type: object
                 properties:
                   id: { type: string, description: 照片的公開 ID (uuidv7) }
-                  path: { type: string, description: 取得圖片的相對路徑 (/photos/{id}) }
+                  path: { type: string, description: 取得圖片的相對路徑 (/photos/:id) }
                   content_type: { type: string }
                   size: { type: integer }
-    patch:
-      operationId: patchReport
-      summary: 更新回報事件 (部分欄位)
-      description: 部分更新事件欄位；未提供之欄位不變。
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/ReportPatch' }
-      responses:
-        '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/Report' } } } }
-        '400': { description: 輸入錯誤 }
-        '404': { description: 找不到 }
   /photos/{id}:
     get:
       operationId: getPhoto
