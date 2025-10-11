@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -228,6 +229,7 @@ func main() {
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200); _, _ = w.Write([]byte("ok")) })
 
 	http.HandleFunc("/upgrade-service", func(w http.ResponseWriter, r *http.Request) {
+		slog.Info("upgrade request", "from", r.RemoteAddr, "user-agent", r.UserAgent())
 		key := r.Header.Get("X-API-Key")
 		if key == "" {
 			key = r.URL.Query().Get("key")

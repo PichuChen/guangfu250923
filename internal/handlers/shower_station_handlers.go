@@ -55,10 +55,12 @@ func (h *Handler) CreateShowerStation(c *gin.Context) {
 	if in.RequiresAppointment != nil {
 		reqApp = *in.RequiresAppointment
 	}
-	var lat, lng *float64
+	var coordsJSON *string
 	if in.Coordinates != nil {
-		lat = in.Coordinates.Lat
-		lng = in.Coordinates.Lng
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			s := string(b)
+			coordsJSON = &s
+		}
 	}
 	var genderJSON []byte
 	if in.GenderSchedule != nil {
@@ -66,8 +68,8 @@ func (h *Handler) CreateShowerStation(c *gin.Context) {
 	}
 	var id string
 	var created, updated int64
-	err := h.pool.QueryRow(ctx, `insert into shower_stations(name,address,phone,facility_type,time_slots,gender_schedule,available_period,capacity,is_free,pricing,notes,info_source,status,facilities,distance_to_guangfu,requires_appointment,contact_method,lat,lng) values($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14::text[],$15,$16,$17,$18,$19) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
-		in.Name, in.Address, in.Phone, in.FacilityType, in.TimeSlots, genderJSON, in.AvailablePeriod, in.Capacity, isFree, in.Pricing, in.Notes, in.InfoSource, in.Status, in.Facilities, in.DistanceToGuangfu, reqApp, in.ContactMethod, lat, lng).Scan(&id, &created, &updated)
+	err := h.pool.QueryRow(ctx, `insert into shower_stations(name,address,phone,facility_type,time_slots,gender_schedule,available_period,capacity,is_free,pricing,notes,info_source,status,facilities,distance_to_guangfu,requires_appointment,contact_method,coordinates) values($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14::text[],$15,$16,$17,$18::jsonb) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
+		in.Name, in.Address, in.Phone, in.FacilityType, in.TimeSlots, genderJSON, in.AvailablePeriod, in.Capacity, isFree, in.Pricing, in.Notes, in.InfoSource, in.Status, in.Facilities, in.DistanceToGuangfu, reqApp, in.ContactMethod, coordsJSON).Scan(&id, &created, &updated)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -79,12 +81,7 @@ func (h *Handler) CreateShowerStation(c *gin.Context) {
 			Female []string `json:"female"`
 		}{Male: in.GenderSchedule.Male, Female: in.GenderSchedule.Female}
 	}
-	if lat != nil || lng != nil {
-		out.Coordinates = &struct {
-			Lat *float64 `json:"lat"`
-			Lng *float64 `json:"lng"`
-		}{Lat: lat, Lng: lng}
-	}
+	out.Coordinates = in.Coordinates
 	c.JSON(http.StatusCreated, out)
 }
 
@@ -184,11 +181,10 @@ func (h *Handler) PatchShowerStation(c *gin.Context) {
 		add("contact_method=", *in.ContactMethod)
 	}
 	if in.Coordinates != nil {
-		if in.Coordinates.Lat != nil {
-			add("lat=", *in.Coordinates.Lat)
-		}
-		if in.Coordinates.Lng != nil {
-			add("lng=", *in.Coordinates.Lng)
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			setParts = append(setParts, "coordinates=$"+strconv.Itoa(idx)+"::jsonb")
+			args = append(args, string(b))
+			idx++
 		}
 	}
 	if len(setParts) == 0 {
@@ -196,7 +192,7 @@ func (h *Handler) PatchShowerStation(c *gin.Context) {
 		return
 	}
 	setParts = append(setParts, "updated_at=now()")
-	query := "update shower_stations set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,name,address,phone,facility_type,time_slots,gender_schedule,available_period,capacity,is_free,pricing,notes,info_source,status,facilities,distance_to_guangfu,requires_appointment,contact_method,lat,lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
+	query := "update shower_stations set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,name,address,phone,facility_type,time_slots,gender_schedule,available_period,capacity,is_free,pricing,notes,info_source,status,facilities,distance_to_guangfu,requires_appointment,contact_method,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
 	args = append(args, id)
 	row := h.pool.QueryRow(ctx, query, args...)
 	var s models.ShowerStation
@@ -248,7 +244,7 @@ func (h *Handler) PatchShowerStation(c *gin.Context) {
 func (h *Handler) GetShowerStation(c *gin.Context) {
 	id := c.Param("id")
 	ctx := context.Background()
-	row := h.pool.QueryRow(ctx, `select id,name,address,phone,facility_type,time_slots,gender_schedule,available_period,capacity,is_free,pricing,notes,info_source,status,facilities,distance_to_guangfu,requires_appointment,contact_method,lat,lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from shower_stations where id=$1`, id)
+	row := h.pool.QueryRow(ctx, `select id,name,address,phone,facility_type,time_slots,gender_schedule,available_period,capacity,is_free,pricing,notes,info_source,status,facilities,distance_to_guangfu,requires_appointment,contact_method,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from shower_stations where id=$1`, id)
 	var s models.ShowerStation
 	var phone, pricing, notes, infoSource, distance, contactMethod *string
 	var genderJSON []byte
@@ -324,7 +320,7 @@ func (h *Handler) ListShowerStations(c *gin.Context) {
 		args = append(args, val)
 	}
 	countQ := "select count(*) from shower_stations"
-	dataQ := "select id,name,address,phone,facility_type,time_slots,gender_schedule,available_period,capacity,is_free,pricing,notes,info_source,status,facilities,distance_to_guangfu,requires_appointment,contact_method,lat,lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from shower_stations"
+	dataQ := "select id,name,address,phone,facility_type,time_slots,gender_schedule,available_period,capacity,is_free,pricing,notes,info_source,status,facilities,distance_to_guangfu,requires_appointment,contact_method,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from shower_stations"
 	if len(filters) > 0 {
 		where := " where " + strings.Join(filters, " and ")
 		countQ += where

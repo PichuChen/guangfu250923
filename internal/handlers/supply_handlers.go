@@ -2,11 +2,11 @@ package handlers
 
 import (
 	"context"
+	"guangfu250923/internal/models"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
-
-	"guangfu250923/internal/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -19,6 +19,7 @@ type supplyCreateInput struct {
 	Notes    *string           `json:"notes"`
 	PiiDate  *int64            `json:"pii_date"`
 	Supplies *supplyItemInline `json:"supplies"`
+	ValidPin *string           `json:"valid_pin"`
 }
 
 // Inline single item (前端需求: POST /supplies 時直接附上一個 supplies 物資項目)
@@ -44,6 +45,14 @@ func (h *Handler) CreateSupply(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	// PIN: generate if empty, else validate
+	if in.ValidPin == nil || strings.TrimSpace(*in.ValidPin) == "" {
+		tmp := GeneratePin(6)
+		in.ValidPin = &tmp
+	} else if !isValidPin6(in.ValidPin) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "valid_pin must be 6 digits"})
+		return
+	}
 	ctx := context.Background()
 	tx, err := h.pool.Begin(ctx)
 	if err != nil {
@@ -53,7 +62,7 @@ func (h *Handler) CreateSupply(c *gin.Context) {
 	defer tx.Rollback(ctx)
 	var id string
 	var created, updated int64
-	if err := tx.QueryRow(ctx, `insert into supplies(name,address,phone,notes,pii_date) values($1,$2,$3,$4,$5) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`, in.Name, in.Address, in.Phone, in.Notes, in.PiiDate).Scan(&id, &created, &updated); err != nil {
+	if err := tx.QueryRow(ctx, `insert into supplies(name,address,phone,notes,pii_date,valid_pin) values($1,$2,$3,$4,$5,$6) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`, in.Name, in.Address, in.Phone, in.Notes, in.PiiDate, in.ValidPin).Scan(&id, &created, &updated); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -192,6 +201,7 @@ func (h *Handler) ListSupplies(c *gin.Context) {
 
 func (h *Handler) GetSupply(c *gin.Context) {
 	id := c.Param("id")
+	filterOutComplete := c.Query("filterOutComplete") == "true"
 	ctx := context.Background()
 	row := h.pool.QueryRow(ctx, `select id,name,address,phone,notes,pii_date,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from supplies where id=$1`, id)
 	var s models.Supply
@@ -213,8 +223,13 @@ func (h *Handler) GetSupply(c *gin.Context) {
 	s.PiiDate = piiDate
 	s.CreatedAt = created
 	s.UpdatedAt = updated
-	// fetch ALL items (could be zero)
-	rows, err := h.pool.Query(ctx, `select id,supply_id,tag,name,received_count,total_number,unit from supply_items where supply_id=$1 order by id asc`, s.ID)
+	// fetch items: if filterOutComplete=true, filter out completed items (received_count == total_number)
+	query := `select id,supply_id,tag,name,received_count,total_number,unit from supply_items where supply_id=$1`
+	if filterOutComplete {
+		query += ` and received_count < total_number`
+	}
+	query += ` order by id asc`
+	rows, err := h.pool.Query(ctx, query, s.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -238,11 +253,12 @@ func (h *Handler) GetSupply(c *gin.Context) {
 }
 
 type supplyPatchInput struct {
-	Name    *string `json:"name"`
-	Address *string `json:"address"`
-	Phone   *string `json:"phone"`
-	Notes   *string `json:"notes"`
-	PiiDate *int64  `json:"pii_date"`
+	Name     *string `json:"name"`
+	Address  *string `json:"address"`
+	Phone    *string `json:"phone"`
+	Notes    *string `json:"notes"`
+	PiiDate  *int64  `json:"pii_date"`
+	ValidPin *string `json:"valid_pin"`
 }
 
 func (h *Handler) PatchSupply(c *gin.Context) {
@@ -251,6 +267,26 @@ func (h *Handler) PatchSupply(c *gin.Context) {
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	// Optional verification (controlled by VERIFY_SUPPLY_PIN)
+	if os.Getenv("VERIFY_SUPPLY_PIN") == "true" {
+		var storedPin *string
+		if err := h.pool.QueryRow(context.Background(), `select valid_pin from supplies where id=$1`, id).Scan(&storedPin); err != nil {
+			if err == pgx.ErrNoRows {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if storedPin == nil || strings.TrimSpace(*storedPin) == "" {
+			// bypass
+		} else {
+			if !isValidPin6(in.ValidPin) || *in.ValidPin != *storedPin {
+				c.JSON(http.StatusForbidden, gin.H{"error": "invalid pin"})
+				return
+			}
+		}
 	}
 	setParts := []string{}
 	args := []interface{}{}

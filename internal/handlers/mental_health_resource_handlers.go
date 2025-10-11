@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -50,26 +51,23 @@ func (h *Handler) CreateMentalHealthResource(c *gin.Context) {
 	if in.EmergencySupport != nil {
 		emergency = *in.EmergencySupport
 	}
-	var lat, lng *float64
+	var coordsJSON *string
 	if in.Coordinates != nil {
-		lat = in.Coordinates.Lat
-		lng = in.Coordinates.Lng
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			s := string(b)
+			coordsJSON = &s
+		}
 	}
 	var id string
 	var created, updated int64
-	err := h.pool.QueryRow(ctx, `insert into mental_health_resources(duration_type,name,service_format,service_hours,contact_info,website_url,target_audience,specialties,languages,is_free,location,lat,lng,status,capacity,waiting_time,notes,emergency_support) values($1,$2,$3,$4,$5,$6,$7::text[],$8::text[],$9::text[],$10,$11,$12,$13,$14,$15,$16,$17,$18) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
-		in.DurationType, in.Name, in.ServiceFormat, in.ServiceHours, in.ContactInfo, in.WebsiteURL, in.TargetAudience, in.Specialties, in.Languages, isFree, in.Location, lat, lng, in.Status, in.Capacity, in.WaitingTime, in.Notes, emergency).Scan(&id, &created, &updated)
+	err := h.pool.QueryRow(ctx, `insert into mental_health_resources(duration_type,name,service_format,service_hours,contact_info,website_url,target_audience,specialties,languages,is_free,location,coordinates,status,capacity,waiting_time,notes,emergency_support) values($1,$2,$3,$4,$5,$6,$7::text[],$8::text[],$9::text[],$10,$11,$12::jsonb,$13,$14,$15,$16,$17) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
+		in.DurationType, in.Name, in.ServiceFormat, in.ServiceHours, in.ContactInfo, in.WebsiteURL, in.TargetAudience, in.Specialties, in.Languages, isFree, in.Location, coordsJSON, in.Status, in.Capacity, in.WaitingTime, in.Notes, emergency).Scan(&id, &created, &updated)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	out := models.MentalHealthResource{ID: id, DurationType: in.DurationType, Name: in.Name, ServiceFormat: in.ServiceFormat, ServiceHours: in.ServiceHours, ContactInfo: in.ContactInfo, WebsiteURL: in.WebsiteURL, TargetAudience: in.TargetAudience, Specialties: in.Specialties, Languages: in.Languages, IsFree: isFree, Location: in.Location, Status: in.Status, Capacity: in.Capacity, WaitingTime: in.WaitingTime, Notes: in.Notes, EmergencySupport: emergency, CreatedAt: created, UpdatedAt: updated}
-	if lat != nil || lng != nil {
-		out.Coordinates = &struct {
-			Lat *float64 `json:"lat"`
-			Lng *float64 `json:"lng"`
-		}{Lat: lat, Lng: lng}
-	}
+	out.Coordinates = in.Coordinates
 	c.JSON(http.StatusCreated, out)
 }
 
@@ -161,11 +159,10 @@ func (h *Handler) PatchMentalHealthResource(c *gin.Context) {
 		add("emergency_support=", *in.EmergencySupport)
 	}
 	if in.Coordinates != nil {
-		if in.Coordinates.Lat != nil {
-			add("lat=", *in.Coordinates.Lat)
-		}
-		if in.Coordinates.Lng != nil {
-			add("lng=", *in.Coordinates.Lng)
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			setParts = append(setParts, "coordinates=$"+strconv.Itoa(idx)+"::jsonb")
+			args = append(args, string(b))
+			idx++
 		}
 	}
 	if len(setParts) == 0 {
@@ -173,7 +170,7 @@ func (h *Handler) PatchMentalHealthResource(c *gin.Context) {
 		return
 	}
 	setParts = append(setParts, "updated_at=now()")
-	query := "update mental_health_resources set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,duration_type,name,service_format,service_hours,contact_info,website_url,target_audience,specialties,languages,is_free,location,lat,lng,status,capacity,waiting_time,notes,emergency_support,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
+	query := "update mental_health_resources set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,duration_type,name,service_format,service_hours,contact_info,website_url,target_audience,specialties,languages,is_free,location,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,status,capacity,waiting_time,notes,emergency_support,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
 	args = append(args, id)
 	row := h.pool.QueryRow(ctx, query, args...)
 	var m models.MentalHealthResource
@@ -212,7 +209,7 @@ func (h *Handler) PatchMentalHealthResource(c *gin.Context) {
 func (h *Handler) GetMentalHealthResource(c *gin.Context) {
 	id := c.Param("id")
 	ctx := context.Background()
-	row := h.pool.QueryRow(ctx, `select id,duration_type,name,service_format,service_hours,contact_info,website_url,target_audience,specialties,languages,is_free,location,lat,lng,status,capacity,waiting_time,notes,emergency_support,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from mental_health_resources where id=$1`, id)
+	row := h.pool.QueryRow(ctx, `select id,duration_type,name,service_format,service_hours,contact_info,website_url,target_audience,specialties,languages,is_free,location,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,status,capacity,waiting_time,notes,emergency_support,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from mental_health_resources where id=$1`, id)
 	var m models.MentalHealthResource
 	var websiteURL, location, waitingTime, notes *string
 	var lat, lng *float64
@@ -268,7 +265,7 @@ func (h *Handler) ListMentalHealthResources(c *gin.Context) {
 		args = append(args, serviceFormat)
 	}
 	countQ := "select count(*) from mental_health_resources"
-	dataQ := "select id,duration_type,name,service_format,service_hours,contact_info,website_url,target_audience,specialties,languages,is_free,location,lat,lng,status,capacity,waiting_time,notes,emergency_support,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from mental_health_resources"
+	dataQ := "select id,duration_type,name,service_format,service_hours,contact_info,website_url,target_audience,specialties,languages,is_free,location,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,status,capacity,waiting_time,notes,emergency_support,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from mental_health_resources"
 	if len(filters) > 0 {
 		where := " where " + strings.Join(filters, " and ")
 		countQ += where

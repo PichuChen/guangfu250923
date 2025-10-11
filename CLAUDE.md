@@ -118,6 +118,18 @@ All API requests logged to `request_logs` table with:
 
 View recent logs: `GET /_admin/request_logs`
 
+### Spam Detection
+`spam_result` table tracks LLM-based spam/malicious content detection:
+- **id**: Unique identifier for the spam check result (string)
+- **target_id**: ID of the resource being validated (e.g., human_resources or supplies UUID)
+- **target_type**: Table name of the target resource (e.g., "human_resources", "supplies")
+- **target_data**: Original data snapshot (JSONB) of the target resource
+- **is_spam**: Boolean flag indicating if LLM detected spam/malicious content
+- **judgment**: Text explanation of why LLM flagged it as spam (e.g., "警告語氣,可能為惡意")
+- **validated_at**: Unix timestamp (stored as bigint) when LLM validation occurred
+
+Used for automated content moderation on user-submitted data.
+
 ## Domain Resources
 
 ### Core Resources (CRUD Pattern)
@@ -139,6 +151,7 @@ Resources:
 - `/human_resources` - Human resource needs/assignments
 - `/supplies` + `/supply_items` - Supply warehouses and inventory
 - `/reports` - Incident reports
+- `/spam_results` - LLM spam detection results (query filters: target_type, target_id, is_spam)
 
 ## Deployment
 

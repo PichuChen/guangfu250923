@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -57,10 +58,12 @@ func (h *Handler) CreateRestroom(c *gin.Context) {
 	if in.HasLighting != nil {
 		hasLighting = *in.HasLighting
 	}
-	var lat, lng *float64
+	var coordsJSON *string
 	if in.Coordinates != nil {
-		lat = in.Coordinates.Lat
-		lng = in.Coordinates.Lng
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			s := string(b)
+			coordsJSON = &s
+		}
 	}
 	var lastCleaned *time.Time
 	if in.LastCleaned != nil {
@@ -70,8 +73,8 @@ func (h *Handler) CreateRestroom(c *gin.Context) {
 	ctx := context.Background()
 	var id string
 	var created, updated int64
-	err := h.pool.QueryRow(ctx, `insert into restrooms(name,address,phone,facility_type,opening_hours,is_free,male_units,female_units,unisex_units,accessible_units,has_water,has_lighting,status,cleanliness,last_cleaned,facilities,distance_to_disaster_area,notes,info_source,lat,lng) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::text[],$17,$18,$19,$20,$21) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
-		in.Name, in.Address, in.Phone, in.FacilityType, in.OpeningHours, isFree, in.MaleUnits, in.FemaleUnits, in.UnisexUnits, in.AccessibleUnits, hasWater, hasLighting, in.Status, in.Cleanliness, lastCleaned, in.Facilities, in.DistanceToDisasterArea, in.Notes, in.InfoSource, lat, lng).Scan(&id, &created, &updated)
+	err := h.pool.QueryRow(ctx, `insert into restrooms(name,address,phone,facility_type,opening_hours,is_free,male_units,female_units,unisex_units,accessible_units,has_water,has_lighting,status,cleanliness,last_cleaned,facilities,distance_to_disaster_area,notes,info_source,coordinates) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::text[],$17,$18,$19,$20::jsonb) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
+		in.Name, in.Address, in.Phone, in.FacilityType, in.OpeningHours, isFree, in.MaleUnits, in.FemaleUnits, in.UnisexUnits, in.AccessibleUnits, hasWater, hasLighting, in.Status, in.Cleanliness, lastCleaned, in.Facilities, in.DistanceToDisasterArea, in.Notes, in.InfoSource, coordsJSON).Scan(&id, &created, &updated)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -81,12 +84,7 @@ func (h *Handler) CreateRestroom(c *gin.Context) {
 		ts := lastCleaned.Unix()
 		out.LastCleaned = &ts
 	}
-	if lat != nil || lng != nil {
-		out.Coordinates = &struct {
-			Lat *float64 `json:"lat"`
-			Lng *float64 `json:"lng"`
-		}{Lat: lat, Lng: lng}
-	}
+	out.Coordinates = in.Coordinates
 	c.JSON(http.StatusCreated, out)
 }
 
@@ -191,11 +189,10 @@ func (h *Handler) PatchRestroom(c *gin.Context) {
 		add("info_source=", *in.InfoSource)
 	}
 	if in.Coordinates != nil {
-		if in.Coordinates.Lat != nil {
-			add("lat=", *in.Coordinates.Lat)
-		}
-		if in.Coordinates.Lng != nil {
-			add("lng=", *in.Coordinates.Lng)
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			setParts = append(setParts, "coordinates=$"+strconv.Itoa(idx)+"::jsonb")
+			args = append(args, string(b))
+			idx++
 		}
 	}
 	if len(setParts) == 0 {
@@ -203,7 +200,7 @@ func (h *Handler) PatchRestroom(c *gin.Context) {
 		return
 	}
 	setParts = append(setParts, "updated_at=now()")
-	query := "update restrooms set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,name,address,phone,facility_type,opening_hours,is_free,male_units,female_units,unisex_units,accessible_units,has_water,has_lighting,status,cleanliness,extract(epoch from last_cleaned)::bigint,facilities,distance_to_disaster_area,notes,info_source,lat,lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
+	query := "update restrooms set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,name,address,phone,facility_type,opening_hours,is_free,male_units,female_units,unisex_units,accessible_units,has_water,has_lighting,status,cleanliness,extract(epoch from last_cleaned)::bigint,facilities,distance_to_disaster_area,notes,info_source,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
 	args = append(args, id)
 	row := h.pool.QueryRow(ctx, query, args...)
 	var r models.Restroom
@@ -250,7 +247,7 @@ func (h *Handler) PatchRestroom(c *gin.Context) {
 func (h *Handler) GetRestroom(c *gin.Context) {
 	id := c.Param("id")
 	ctx := context.Background()
-	row := h.pool.QueryRow(ctx, `select id,name,address,phone,facility_type,opening_hours,is_free,male_units,female_units,unisex_units,accessible_units,has_water,has_lighting,status,cleanliness,extract(epoch from last_cleaned)::bigint,facilities,distance_to_disaster_area,notes,info_source,lat,lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from restrooms where id=$1`, id)
+	row := h.pool.QueryRow(ctx, `select id,name,address,phone,facility_type,opening_hours,is_free,male_units,female_units,unisex_units,accessible_units,has_water,has_lighting,status,cleanliness,extract(epoch from last_cleaned)::bigint,facilities,distance_to_disaster_area,notes,info_source,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from restrooms where id=$1`, id)
 	var r models.Restroom
 	var phone, cleanliness, distance, notes, infoSource *string
 	var male, female, unisex, accessible *int
@@ -324,7 +321,7 @@ func (h *Handler) ListRestrooms(c *gin.Context) {
 		args = append(args, hasLighting == "true" || hasLighting == "1")
 	}
 	countQ := "select count(*) from restrooms"
-	dataQ := "select id,name,address,phone,facility_type,opening_hours,is_free,male_units,female_units,unisex_units,accessible_units,has_water,has_lighting,status,cleanliness,extract(epoch from last_cleaned)::bigint,facilities,distance_to_disaster_area,notes,info_source,lat,lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from restrooms"
+	dataQ := "select id,name,address,phone,facility_type,opening_hours,is_free,male_units,female_units,unisex_units,accessible_units,has_water,has_lighting,status,cleanliness,extract(epoch from last_cleaned)::bigint,facilities,distance_to_disaster_area,notes,info_source,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from restrooms"
 	if len(filters) > 0 {
 		where := " where " + strings.Join(filters, " and ")
 		countQ += where

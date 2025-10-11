@@ -273,6 +273,31 @@ type SupplyItem struct {
 	Unit          *string `json:"unit"`
 }
 
+// Photo stores metadata for uploaded images, while the actual file lives in R2/S3.
+type Photo struct {
+	ID               string `json:"id"`
+	ObjectKey        string `json:"object_key"`
+	OriginalFilename string `json:"original_filename"`
+	ContentType      string `json:"content_type"`
+	Size             int64  `json:"size"`
+	PublicURL        string `json:"public_url"`
+	CreatedAt        int64  `json:"created_at"`
+}
+
+// SupplyProvider represents supply_providers table row
+type SupplyProvider struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Phone         string `json:"phone"`
+	SupplyItemID  string `json:"supply_item_id"`
+	Address       string `json:"address"`
+	Notes         *string `json:"notes"`
+	ProvideCount  int     `json:"provide_count"`
+	ProvideUnit   *string `json:"provide_unit"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+}
+
 // Report represents reports table row
 type Report struct {
 	ID           string  `json:"id"`
@@ -284,4 +309,72 @@ type Report struct {
 	LocationID   string  `json:"location_id"`
 	CreatedAt    int64   `json:"created_at"`
 	UpdatedAt    int64   `json:"updated_at"`
+}
+
+// SpamResult represents spam_result table row
+type SpamResult struct {
+	ID          string                 `json:"id"`
+	TargetID    string                 `json:"target_id"`
+	TargetType  string                 `json:"target_type"`
+	TargetData  map[string]interface{} `json:"target_data"`
+	IsSpam      bool                   `json:"is_spam"`
+	Judgment    string                 `json:"judgment"`
+	ValidatedAt int64                  `json:"validated_at"`
+}
+
+// Place represents places table row
+type Place struct {
+	ID                string                   `json:"id"`
+	Name              string                   `json:"name"`
+	Address           string                   `json:"address"`
+	AddressDescription *string                 `json:"address_description"`
+	Coordinates       map[string]interface{}   `json:"coordinates"`
+	Type              string                   `json:"type"`
+	SubType           *string                  `json:"sub_type"`
+	InfoSources       []string                 `json:"info_sources"`
+	VerifiedAt        *int64                   `json:"verified_at"`
+	WebsiteURL        *string                  `json:"website_url"`
+	Status            string                   `json:"status"`
+	Resources         []map[string]interface{} `json:"resources"`
+	OpenDate          *string                  `json:"open_date"`
+	EndDate           *string                  `json:"end_date"`
+	OpenTime          *string                  `json:"open_time"`
+	EndTime           *string                  `json:"end_time"`
+	ContactName       string                   `json:"contact_name"`
+	ContactPhone      string                   `json:"contact_phone"`
+	Notes             *string                  `json:"notes"`
+	Tags              []map[string]interface{} `json:"tags"`
+	AdditionalInfo    map[string]interface{}   `json:"additional_info"`
+	CreatedAt         int64                    `json:"created_at"`
+	UpdatedAt         int64                    `json:"updated_at"`
+}
+
+// RequirementsHR represents requirements_hr table row
+type RequirementsHR struct {
+	ID            string                   `json:"id"`
+	PlaceID       string                   `json:"place_id"`
+	RequiredType  string                   `json:"required_type"`
+	Name          string                   `json:"name"`
+	Unit          string                   `json:"unit"`
+	RequireCount  int                      `json:"require_count"`
+	ReceivedCount int                      `json:"received_count"`
+	Tags          []map[string]interface{} `json:"tags"`
+	AdditionalInfo map[string]interface{}  `json:"additional_info"`
+	CreatedAt     int64                    `json:"created_at"`
+	UpdatedAt     int64                    `json:"updated_at"`
+}
+
+// RequirementsSupplies represents requirements_supplies table row
+type RequirementsSupplies struct {
+	ID            string                   `json:"id"`
+	PlaceID       string                   `json:"place_id"`
+	RequiredType  string                   `json:"required_type"`
+	Name          string                   `json:"name"`
+	Unit          string                   `json:"unit"`
+	RequireCount  int                      `json:"require_count"`
+	ReceivedCount int                      `json:"received_count"`
+	Tags          []map[string]interface{} `json:"tags"`
+	AdditionalInfo map[string]interface{}  `json:"additional_info"`
+	CreatedAt     int64                    `json:"created_at"`
+	UpdatedAt     int64                    `json:"updated_at"`
 }

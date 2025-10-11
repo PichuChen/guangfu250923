@@ -43,17 +43,25 @@ func RequestLogger(pool *pgxpool.Pool, maxHeaderBytes int) gin.HandlerFunc {
 		maxHeaderBytes = 16 * 1024
 	}
 	return func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/supply_providers") {
+			c.Next()
+			return
+		}
 		start := time.Now()
 		recorder := &responseRecorder{ResponseWriter: c.Writer, status: 200}
 		c.Writer = recorder
 
 		var rawBody []byte
 		if c.Request.Body != nil && (c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPatch) {
-			// read and replace body so handler can still consume
-			bodyBytes, _ := io.ReadAll(io.LimitReader(c.Request.Body, 256*1024))
-			rawBody = bodyBytes
-			c.Request.Body.Close()
-			c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			// Avoid touching multipart/form-data bodies; let handlers parse them directly
+			ct := c.GetHeader("Content-Type")
+			if !strings.HasPrefix(strings.ToLower(ct), "multipart/") {
+				// read and replace body so handler can still consume
+				bodyBytes, _ := io.ReadAll(io.LimitReader(c.Request.Body, 256*1024))
+				rawBody = bodyBytes
+				c.Request.Body.Close()
+				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			}
 		}
 
 		var originalData json.RawMessage
@@ -119,14 +127,6 @@ func nullIfEmpty(s string) *string {
 	return &s
 }
 
-func bytesOrNull(b []byte) *string { // retained for backwards compatibility (not used for JSON columns now)
-	if len(b) == 0 {
-		return nil
-	}
-	s := string(b)
-	return &s
-}
-
 // jsonOrNull guarantees returned string is valid JSON for insertion into a jsonb column.
 // If the raw bytes are already valid JSON, they are used as-is. Otherwise they're wrapped as a JSON string.
 func jsonOrNull(b []byte) *string {
@@ -183,7 +183,10 @@ func fetchOriginal(c *gin.Context, pool *pgxpool.Pool, pattern, id string) []byt
 	switch pattern {
 	case "/shelters/:id":
 		sql = `select row_to_json(t) from (
-		  select id,name,location,phone,link,status,capacity,current_occupancy,available_spaces,facilities,contact_person,notes,lat,lng,opening_hours,
+		  select id,name,location,phone,link,status,capacity,current_occupancy,available_spaces,facilities,contact_person,notes,
+		  	 (coordinates->>'lat')::double precision as lat,
+		  	 (coordinates->>'lng')::double precision as lng,
+		  	 opening_hours,
 			  extract(epoch from created_at)::bigint as created_at,
 			  extract(epoch from updated_at)::bigint as updated_at
 		  from shelters where id=$1) t`
@@ -191,37 +194,50 @@ func fetchOriginal(c *gin.Context, pool *pgxpool.Pool, pattern, id string) []byt
 		// medical_stations schema (no 'address' column; uses location + detailed_address etc.)
 		sql = `select row_to_json(t) from (
 		  select id,station_type,name,location,detailed_address,phone,contact_person,status,services,equipment,operating_hours,medical_staff,daily_capacity,
-			  affiliated_organization,notes,link,lat,lng,
+			  affiliated_organization,notes,link,
+			  (coordinates->>'lat')::double precision as lat,
+			  (coordinates->>'lng')::double precision as lng,
 			  extract(epoch from created_at)::bigint as created_at,
 			  extract(epoch from updated_at)::bigint as updated_at
 		  from medical_stations where id=$1) t`
 	case "/mental_health_resources/:id":
 		sql = `select row_to_json(t) from (
-		  select id,duration_type,name,service_format,service_hours,contact_info,website_url,target_audience,specialties,languages,is_free,location,lat,lng,status,capacity,waiting_time,notes,emergency_support,
+		  select id,duration_type,name,service_format,service_hours,contact_info,website_url,target_audience,specialties,languages,is_free,location,
+		  	 (coordinates->>'lat')::double precision as lat,
+		  	 (coordinates->>'lng')::double precision as lng,
+		  	 status,capacity,waiting_time,notes,emergency_support,
 			  extract(epoch from created_at)::bigint as created_at,
 			  extract(epoch from updated_at)::bigint as updated_at
 		  from mental_health_resources where id=$1) t`
 	case "/accommodations/:id":
 		sql = `select row_to_json(t) from (
-		  select id,township,name,has_vacancy,available_period,restrictions,contact_info,room_info,address,pricing,info_source,notes,capacity,status,registration_method,facilities,distance_to_disaster_area,lat,lng,
+		  select id,township,name,has_vacancy,available_period,restrictions,contact_info,room_info,address,pricing,info_source,notes,capacity,status,registration_method,facilities,distance_to_disaster_area,
+		  	 (coordinates->>'lat')::double precision as lat,
+		  	 (coordinates->>'lng')::double precision as lng,
 			  extract(epoch from created_at)::bigint as created_at,
 			  extract(epoch from updated_at)::bigint as updated_at
 		  from accommodations where id=$1) t`
 	case "/shower_stations/:id":
 		sql = `select row_to_json(t) from (
-		  select id,name,address,phone,facility_type,time_slots,gender_schedule,available_period,capacity,is_free,pricing,notes,info_source,status,facilities,distance_to_guangfu,requires_appointment,contact_method,lat,lng,
+		  select id,name,address,phone,facility_type,time_slots,gender_schedule,available_period,capacity,is_free,pricing,notes,info_source,status,facilities,distance_to_guangfu,requires_appointment,contact_method,
+		  	 (coordinates->>'lat')::double precision as lat,
+		  	 (coordinates->>'lng')::double precision as lng,
 			  extract(epoch from created_at)::bigint as created_at,
 			  extract(epoch from updated_at)::bigint as updated_at
 		  from shower_stations where id=$1) t`
 	case "/water_refill_stations/:id":
 		sql = `select row_to_json(t) from (
-		  select id,name,address,phone,water_type,opening_hours,is_free,container_required,daily_capacity,status,water_quality,facilities,accessibility,distance_to_disaster_area,notes,info_source,lat,lng,
+		  select id,name,address,phone,water_type,opening_hours,is_free,container_required,daily_capacity,status,water_quality,facilities,accessibility,distance_to_disaster_area,notes,info_source,
+		  	 (coordinates->>'lat')::double precision as lat,
+		  	 (coordinates->>'lng')::double precision as lng,
 			  extract(epoch from created_at)::bigint as created_at,
 			  extract(epoch from updated_at)::bigint as updated_at
 		  from water_refill_stations where id=$1) t`
 	case "/restrooms/:id":
 		sql = `select row_to_json(t) from (
-		  select id,name,address,phone,facility_type,opening_hours,is_free,male_units,female_units,unisex_units,accessible_units,has_water,has_lighting,status,cleanliness,last_cleaned,facilities,distance_to_disaster_area,notes,info_source,lat,lng,
+		  select id,name,address,phone,facility_type,opening_hours,is_free,male_units,female_units,unisex_units,accessible_units,has_water,has_lighting,status,cleanliness,last_cleaned,facilities,distance_to_disaster_area,notes,info_source,
+		  	 (coordinates->>'lat')::double precision as lat,
+		  	 (coordinates->>'lng')::double precision as lng,
 			  extract(epoch from created_at)::bigint as created_at,
 			  extract(epoch from updated_at)::bigint as updated_at
 		  from restrooms where id=$1) t`

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -190,12 +191,35 @@ func upsertAccommodation(ctx context.Context, pool *pgxpool.Pool, township, name
 		return err
 	}
 	if existingID != "" {
-		// update minimal fields (vacancy, period, contact, room_info, pricing, info_source, notes, lat,lng, updated_at)
-		_, err = pool.Exec(ctx, `update accommodations set has_vacancy=$1,available_period=$2,contact_info=$3,room_info=$4,pricing=$5,info_source=$6,notes=$7,lat=$8,lng=$9,updated_at=now() where id=$10`, hasVacancy, availablePeriod, contact, roomInfo, pricing, infoSource, notes, lat, lng, existingID)
+		// update minimal fields and coordinates JSONB
+		var coords *string
+		if lat != nil || lng != nil {
+			coord := struct {
+				Lat *float64 `json:"lat"`
+				Lng *float64 `json:"lng"`
+			}{Lat: lat, Lng: lng}
+			if b, err := json.Marshal(coord); err == nil {
+				s := string(b)
+				coords = &s
+			}
+		}
+		_, err = pool.Exec(ctx, `update accommodations set has_vacancy=$1,available_period=$2,contact_info=$3,room_info=$4,pricing=$5,info_source=$6,notes=$7,coordinates=$8::jsonb,updated_at=now() where id=$9`, hasVacancy, availablePeriod, contact, roomInfo, pricing, infoSource, notes, coords, existingID)
 		return err
 	}
 	// insert
-	_, err = pool.Exec(ctx, `insert into accommodations(township,name,has_vacancy,available_period,restrictions,contact_info,room_info,address,pricing,info_source,notes,status,lat,lng) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-		township, name, hasVacancy, availablePeriod, restrictions, contact, roomInfo, address, pricing, infoSource, notes, status, lat, lng)
+	// insert with coordinates JSONB
+	var coords *string
+	if lat != nil || lng != nil {
+		coord := struct {
+			Lat *float64 `json:"lat"`
+			Lng *float64 `json:"lng"`
+		}{Lat: lat, Lng: lng}
+		if b, err := json.Marshal(coord); err == nil {
+			s := string(b)
+			coords = &s
+		}
+	}
+	_, err = pool.Exec(ctx, `insert into accommodations(township,name,has_vacancy,available_period,restrictions,contact_info,room_info,address,pricing,info_source,notes,status,coordinates) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)`,
+		township, name, hasVacancy, availablePeriod, restrictions, contact, roomInfo, address, pricing, infoSource, notes, status, coords)
 	return err
 }

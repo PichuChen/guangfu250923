@@ -84,6 +84,18 @@ paths:
         '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/VolunteerOrganization' } } } }
         '400': { description: 輸入錯誤 }
         '404': { description: 找不到 }
+    delete:
+      operationId: deleteVolunteerOrg
+      summary: 刪除志工招募單位
+      description: 依 ID 刪除一筆志工招募單位資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 刪除成功，無內容 }
+        '404': { description: 找不到 }
   /shelters:
     get:
       operationId: listShelters
@@ -125,6 +137,18 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/Shelter' } } } }
+        '404': { description: 找不到 }
+    delete:
+      operationId: deleteShelter
+      summary: 刪除庇護所
+      description: 依 ID 刪除一筆庇護所資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 刪除成功，無內容 }
         '404': { description: 找不到 }
     patch:
       operationId: patchShelter
@@ -188,6 +212,18 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/MedicalStation' } } } }
+        '404': { description: 找不到 }
+    delete:
+      operationId: deleteMedicalStation
+      summary: 刪除醫療站
+      description: 依 ID 刪除一筆醫療站資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 刪除成功，無內容 }
         '404': { description: 找不到 }
     patch:
       operationId: patchMedicalStation
@@ -254,6 +290,18 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/MentalHealthResource' } } } }
+        '404': { description: 找不到 }
+    delete:
+      operationId: deleteMentalHealthResource
+      summary: 刪除心理健康資源
+      description: 依 ID 刪除一筆心理健康資源資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 刪除成功，無內容 }
         '404': { description: 找不到 }
     patch:
       operationId: patchMentalHealthResource
@@ -333,6 +381,129 @@ paths:
         '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/Report' } } } }
         '400': { description: 輸入錯誤 }
         '404': { description: 找不到 }
+  /uploads/photos:
+    post:
+      operationId: uploadPhoto
+      summary: 上傳照片
+      description: 以 multipart/form-data 上傳照片，回傳可公開存取的 URL。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: 建立成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, description: 照片的公開 ID (uuidv7) }
+                  path: { type: string, description: 取得圖片的相對路徑 (/photos/:id) }
+                  content_type: { type: string }
+                  size: { type: integer }
+  /photos/{id}:
+    get:
+      operationId: getPhoto
+      summary: 取得照片（可指定縮圖大小）
+      description: 依 ID 取得照片；可用 query 參數 thumbnail 指定 small/medium/large/original（預設 medium）。可能直接回傳圖片內容 (200) 或 302 重新導向至簽名 URL / 公開 URL。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: thumbnail
+          required: false
+          schema:
+            type: string
+            enum: [small, medium, large, original]
+          description: 縮圖大小，預設 medium。對應寬度 small=w100, medium=w300, large=w1200；original 為原圖。
+      responses:
+        '200':
+          description: 圖片內容
+          content:
+            image/jpeg: {}
+            image/png: {}
+            image/webp: {}
+        '302': { description: 重新導向至圖片網址 }
+        '400': { description: 參數錯誤 }
+        '404': { description: 找不到 }
+  /spam_results:
+    get:
+      operationId: listSpamResults
+      summary: 取得垃圾訊息檢測結果清單 (分頁)
+      description: 分頁列出 LLM 垃圾訊息檢測結果，可依 target_type、target_id、is_spam 過濾。
+      parameters:
+        - in: query
+          name: target_type
+          schema: { type: string }
+          description: 目標資料類型 (如 human_resources, supplies)
+        - in: query
+          name: target_id
+          schema: { type: string }
+          description: 目標資料 ID
+        - in: query
+          name: is_spam
+          schema: { type: string, enum: ["true", "false"] }
+          description: 是否為垃圾訊息
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/SpamResultCollection' } } } }
+    post:
+      operationId: createSpamResult
+      summary: 建立垃圾訊息檢測結果
+      description: 新增一筆 LLM 垃圾訊息檢測結果。validated_at 會自動設為當前時間。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpamResultCreate' }
+      responses:
+        '201': { description: 建立成功, content: { application/json: { schema: { $ref: '#/components/schemas/SpamResult' } } } }
+        '400': { description: 輸入錯誤 }
+  /spam_results/{id}:
+    get:
+      operationId: getSpamResult
+      summary: 取得單一垃圾訊息檢測結果
+      description: 依 ID 取得檢測結果詳情。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/SpamResult' } } } }
+        '404': { description: 找不到 }
+    patch:
+      operationId: patchSpamResult
+      summary: 更新垃圾訊息檢測結果 (部分欄位)
+      description: 部分更新檢測結果欄位 (如 is_spam、judgment、target_data)；未提供之欄位不變。用於人工複審或修正。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpamResultPatch' }
+      responses:
+        '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/SpamResult' } } } }
+        '400': { description: 輸入錯誤 }
+        '404': { description: 找不到 }
   /accommodations:
     get:
       operationId: listAccommodations
@@ -380,6 +551,18 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/Accommodation' } } } }
+        '404': { description: 找不到 }
+    delete:
+      operationId: deleteAccommodation
+      summary: 刪除住宿資源
+      description: 依 ID 刪除一筆住宿資源資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 刪除成功，無內容 }
         '404': { description: 找不到 }
     patch:
       operationId: patchAccommodation
@@ -450,6 +633,18 @@ paths:
       responses:
         '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/ShowerStation' } } } }
         '404': { description: 找不到 }
+    delete:
+      operationId: deleteShowerStation
+      summary: 刪除洗澡點
+      description: 依 ID 刪除一筆洗澡/盥洗點資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 刪除成功，無內容 }
+        '404': { description: 找不到 }
     patch:
       operationId: patchShowerStation
       summary: 更新洗澡點 (部分欄位)
@@ -518,6 +713,18 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/WaterRefillStation' } } } }
+        '404': { description: 找不到 }
+    delete:
+      operationId: deleteWaterRefillStation
+      summary: 刪除飲用水補給站
+      description: 依 ID 刪除一筆飲用水補給站資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 刪除成功，無內容 }
         '404': { description: 找不到 }
     patch:
       operationId: patchWaterRefillStation
@@ -591,6 +798,18 @@ paths:
       responses:
         '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/Restroom' } } } }
         '404': { description: 找不到 }
+    delete:
+      operationId: deleteRestroom
+      summary: 刪除廁所點
+      description: 依 ID 刪除一筆廁所點資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 刪除成功，無內容 }
+        '404': { description: 找不到 }
     patch:
       operationId: patchRestroom
       summary: 更新廁所點 (部分欄位)
@@ -649,7 +868,7 @@ paths:
     post:
       operationId: createHumanResource
       summary: 建立人力需求/角色
-      description: 建立一筆人力角色需求紀錄 (含需求人數與技能等資訊)。
+      description: 建立一筆人力角色需求紀錄 (含需求人數與技能等資訊)。可提供 valid_pin 作為後續編輯驗證用的6碼PIN (不會在回應中回傳)；若未提供將由系統自動產生。
       requestBody:
         required: true
         content:
@@ -671,10 +890,22 @@ paths:
       responses:
         '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/HumanResource' } } } }
         '404': { description: 找不到 }
+    delete:
+      operationId: deleteHumanResource
+      summary: 刪除人力需求/角色
+      description: 依 ID 刪除一筆人力需求/角色資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: 刪除成功，無內容 }
+        '404': { description: 找不到 }
     patch:
       operationId: patchHumanResource
       summary: 更新人力需求/角色 (部分欄位)
-      description: 部分更新人力角色需求欄位，只更新傳入欄位。
+      description: 部分更新人力角色需求欄位，只更新傳入欄位。若此紀錄已設定過 valid_pin，必須提供同一個 PIN 才能更新除了 status, is_completed以及headcount_got 的欄位；若尚未設定且本次未提供，系統會自動產生一組 PIN 並允許此次更新。
       parameters:
         - in: path
           name: id
@@ -748,9 +979,21 @@ paths:
         - in: path
           name: id
           required: true
-          schema: { type: string, format: uuid }
+          schema: { type: string }
       responses:
         '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/Supply' } } } }
+        '404': { description: 找不到 }
+    delete:
+      operationId: deleteSupply
+      summary: 刪除供應單
+      description: 依 ID 刪除一筆供應單資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: 刪除成功，無內容 }
         '404': { description: 找不到 }
     patch:
       operationId: patchSupply
@@ -765,7 +1008,7 @@ paths:
         - in: path
           name: id
           required: true
-          schema: { type: string, format: uuid }
+          schema: { type: string }
       responses:
         '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/Supply' } } } }
         '400': { description: 輸入錯誤 }
@@ -789,7 +1032,7 @@ paths:
                 type: object
                 required: [id,count]
                 properties:
-                  id: { type: string, format: uuid, description: supply_item ID }
+                  id: { type: string, description: supply_item ID }
                   count: { type: integer, minimum: 1, description: 本次配送新增的數量 }
       responses:
         '200': { description: 成功, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/SupplyItem' } } } } }
@@ -803,7 +1046,7 @@ paths:
       parameters:
         - in: query
           name: supply_id
-          schema: { type: string, format: uuid }
+          schema: { type: string }
           description: 過濾指定供應單底下的項目
         - in: query
           name: limit
@@ -834,9 +1077,21 @@ paths:
         - in: path
           name: id
           required: true
-          schema: { type: string, format: uuid }
+          schema: { type: string }
       responses:
         '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/SupplyItem' } } } }
+        '404': { description: 找不到 }
+    delete:
+      operationId: deleteSupplyItem
+      summary: 刪除物資項目
+      description: 依 ID 刪除一筆物資項目資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: 刪除成功，無內容 }
         '404': { description: 找不到 }
     patch:
       operationId: patchSupplyItem
@@ -851,12 +1106,313 @@ paths:
         - in: path
           name: id
           required: true
-          schema: { type: string, format: uuid }
+          schema: { type: string }
       responses:
         '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/SupplyItem' } } } }
         '400': { description: 輸入錯誤 }
         '404': { description: 找不到 }
+  /supply_providers:
+    get:
+      operationId: listSupplyProviders
+      summary: 取得物資提供站點清單 (分頁)
+      description: 分頁列出所有物資提供站點，可用 supply_item_id 過濾特定物資項目的站點；採 JSON-LD Collection 格式。
+      parameters:
+        - in: query
+          name: supply_item_id
+          schema: { type: string }
+          description: 過濾指定物資項目的站點
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/SupplyProviderCollection' } } } }
+    post:
+      operationId: createSupplyProvider
+      summary: 建立物資提供站點
+      description: 新增一筆物資提供站點資料，必須關聯到既有的物資項目 (supply_item_id)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplyProviderCreate' }
+      responses:
+        '201': { description: 建立成功, content: { application/json: { schema: { $ref: '#/components/schemas/SupplyProvider' } } } }
+        '400': { description: 輸入錯誤 }
+        '404': { description: 關聯的物資項目不存在 }
+  /supply_providers/{id}:
+    get:
+      operationId: getSupplyProvider
+      summary: 取得單一物資提供站點
+      description: 依物資提供站點 UUID 取得其詳細資訊。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/SupplyProvider' } } } }
+        '404': { description: 找不到 }
+    patch:
+      operationId: patchSupplyProvider
+      summary: 更新物資提供站點 (部分欄位)
+      description: 部分更新物資提供站點欄位；若更新 supply_item_id 則驗證其存在性，並自動更新 updated_at。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplyProviderPatch' }
+      responses:
+        '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/SupplyProvider' } } } }
+        '400': { description: 輸入錯誤 }
+        '404': { description: 找不到 }
+  /places:
+    get:
+      operationId: listPlaces
+      summary: 取得場所點清單 (分頁)
+      description: 分頁列出所有場所點 (places)，可依狀態與類型過濾。
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: type
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/PlaceCollection' } } } }
+    post:
+      operationId: createPlace
+      summary: 建立場所點
+      description: 新增一筆通用場所點資料。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlaceCreate' }
+      responses:
+        '201': { description: 建立成功, content: { application/json: { schema: { $ref: '#/components/schemas/Place' } } } }
+        '400': { description: 輸入錯誤 }
+  /places/{id}:
+    get:
+      operationId: getPlace
+      summary: 取得單一場所點
+      description: 依 ID 取得場所點詳細資訊。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/Place' } } } }
+        '404': { description: 找不到 }
+    delete:
+      operationId: deletePlace
+      summary: 刪除場所點
+      description: 依 ID 刪除一筆場所點資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: 刪除成功，無內容 }
+        '404': { description: 找不到 }
+    patch:
+      operationId: patchPlace
+      summary: 更新場所點 (部分欄位)
+      description: 部分更新場所點欄位；僅更新提供的欄位，並自動更新 updated_at。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlacePatch' }
+      responses:
+        '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/Place' } } } }
+        '400': { description: 輸入錯誤 }
+        '404': { description: 找不到 }
+  /requirements_hr:
+    get:
+      operationId: listRequirementsHR
+      summary: 取得場所人力需求清單 (分頁)
+      description: 分頁列出各場所的人力需求 (requirements_hr)，可依 place_id 與 required_type 過濾。
+      parameters:
+        - in: query
+          name: place_id
+          schema: { type: string }
+          description: 指定隸屬的場所點 ID
+        - in: query
+          name: required_type
+          schema: { type: string }
+          description: 需求類型
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/RequirementsHRCollection' } } } }
+    post:
+      operationId: createRequirementsHR
+      summary: 建立場所人力需求
+      description: 新增一筆隸屬於場所點的人力需求。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequirementsHRCreate' }
+      responses:
+        '201': { description: 建立成功, content: { application/json: { schema: { $ref: '#/components/schemas/RequirementsHR' } } } }
+        '400': { description: 輸入錯誤 }
+        '404': { description: 指定的場所點不存在 }
+  /requirements_hr/{id}:
+    get:
+      operationId: getRequirementsHR
+      summary: 取得單一場所人力需求
+      description: 依 ID 取得人力需求詳細資訊。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/RequirementsHR' } } } }
+        '404': { description: 找不到 }
+    delete:
+      operationId: deleteRequirementsHR
+      summary: 刪除場所人力需求
+      description: 依 ID 刪除一筆人力需求資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: 刪除成功，無內容 }
+        '404': { description: 找不到 }
+    patch:
+      operationId: patchRequirementsHR
+      summary: 更新場所人力需求 (部分欄位)
+      description: 部分更新人力需求欄位；僅更新提供的欄位，並自動更新 updated_at。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequirementsHRPatch' }
+      responses:
+        '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/RequirementsHR' } } } }
+        '400': { description: 輸入錯誤 }
+        '404': { description: 找不到 }
+  /requirements_supplies:
+    get:
+      operationId: listRequirementsSupplies
+      summary: 取得場所物資需求清單 (分頁)
+      description: 分頁列出各場所的物資需求 (requirements_supplies)，可依 place_id 與 required_type 過濾。
+      parameters:
+        - in: query
+          name: place_id
+          schema: { type: string }
+          description: 指定隸屬的場所點 ID
+        - in: query
+          name: required_type
+          schema: { type: string }
+          description: 需求類型 (飲食/醫療用品/生活用品等)
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/RequirementsSuppliesCollection' } } } }
+    post:
+      operationId: createRequirementsSupplies
+      summary: 建立場所物資需求
+      description: 新增一筆隸屬於場所點的物資需求。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequirementsSuppliesCreate' }
+      responses:
+        '201': { description: 建立成功, content: { application/json: { schema: { $ref: '#/components/schemas/RequirementsSupplies' } } } }
+        '400': { description: 輸入錯誤 }
+        '404': { description: 指定的場所點不存在 }
+  /requirements_supplies/{id}:
+    get:
+      operationId: getRequirementsSupplies
+      summary: 取得單一場所物資需求
+      description: 依 ID 取得物資需求詳細資訊。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: 成功, content: { application/json: { schema: { $ref: '#/components/schemas/RequirementsSupplies' } } } }
+        '404': { description: 找不到 }
+    delete:
+      operationId: deleteRequirementsSupplies
+      summary: 刪除場所物資需求
+      description: 依 ID 刪除一筆物資需求資料。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: 刪除成功，無內容 }
+        '404': { description: 找不到 }
+    patch:
+      operationId: patchRequirementsSupplies
+      summary: 更新場所物資需求 (部分欄位)
+      description: 部分更新物資需求欄位；僅更新提供的欄位，並自動更新 updated_at。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequirementsSuppliesPatch' }
+      responses:
+        '200': { description: 更新成功, content: { application/json: { schema: { $ref: '#/components/schemas/RequirementsSupplies' } } } }
+        '400': { description: 輸入錯誤 }
+        '404': { description: 找不到 }
 components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
   schemas:
     CollectionBase:
       type: object
@@ -1970,6 +2526,7 @@ components:
         is_completed: { type: boolean }
         has_medical: { type: boolean, nullable: true }
         pii_date: { type: integer, format: int64, nullable: true, description: 個資同意時間 (Unix Timestamp) }
+        valid_pin: { type: string, nullable: true, description: 編輯用6碼PIN；未提供將自動產生，不會在回應中回傳, minLength: 6, maxLength: 6 }
         role_name: { type: string }
         role_type: { type: string }
         skills: { type: array, items: { type: string } }
@@ -1989,6 +2546,12 @@ components:
     HumanResourcePatch:
       type: object
       properties:
+        valid_pin:
+          type: string
+          nullable: true
+          description: 編輯驗證用6碼PIN；若紀錄尚未有PIN且本次未提供，系統會自動產生
+          minLength: 6
+          maxLength: 6
         org: { type: string }
         address: { type: string }
         phone: { type: string }
@@ -2123,7 +2686,7 @@ components:
       type: object
       required: [supply_id,total_count]
       properties:
-        supply_id: { type: string, format: uuid }
+        supply_id: { type: string }
         tag: { type: string, nullable: true }
         name: { type: string, nullable: true }
         total_count: { type: integer }
@@ -2144,6 +2707,239 @@ components:
             member:
               type: array
               items: { $ref: '#/components/schemas/SupplyItem' }
+    SupplyProvider:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        phone: { type: string }
+        supply_item_id: { type: string }
+        address: { type: string }
+        notes: { type: string, nullable: true }
+        provide_count: { type: integer }
+        provide_unit: { type: string, nullable: true }
+        created_at: { type: integer, format: int64 }
+        updated_at: { type: integer, format: int64 }
+    SupplyProviderCreate:
+      type: object
+      required: [name,phone,supply_item_id,address,provide_count]
+      properties:
+        name: { type: string }
+        phone: { type: string }
+        supply_item_id: { type: string }
+        address: { type: string }
+        notes: { type: string, nullable: true }
+        provide_count: { type: integer }
+        provide_unit: { type: string, nullable: true }
+    SupplyProviderPatch:
+      type: object
+      properties:
+        name: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        supply_item_id: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        provide_count: { type: integer, nullable: true }
+        provide_unit: { type: string, nullable: true }
+    SupplyProviderCollection:
+      allOf:
+        - $ref: '#/components/schemas/CollectionBase'
+        - type: object
+          properties:
+            member:
+              type: array
+              items: { $ref: '#/components/schemas/SupplyProvider' }
+    Place:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        address: { type: string }
+        address_description: { type: string, nullable: true }
+        coordinates:
+          type: object
+          additionalProperties: true
+        type:
+          type: string
+          description: 類型
+          enum: ['醫療','加水','廁所','洗澡','避難','住宿','物資','心理援助']
+        sub_type: { type: string, nullable: true }
+        info_sources: { type: array, items: { type: string } }
+        verified_at: { type: integer, format: int64, nullable: true }
+        website_url: { type: string, nullable: true }
+        status:
+          type: string
+          description: 狀態
+          enum: ['開放','暫停','關閉']
+        resources: { type: array, items: { type: object, additionalProperties: true } }
+        open_date: { type: string, nullable: true }
+        end_date: { type: string, nullable: true }
+        open_time: { type: string, nullable: true }
+        end_time: { type: string, nullable: true }
+        contact_name: { type: string }
+        contact_phone: { type: string }
+        notes: { type: string, nullable: true }
+        tags: { type: array, items: { type: object, additionalProperties: true } }
+        additional_info: { type: object, additionalProperties: true }
+        created_at: { type: integer, format: int64 }
+        updated_at: { type: integer, format: int64 }
+    PlaceCreate:
+      type: object
+      required: [name, address, coordinates, type, status, contact_name, contact_phone]
+      properties:
+        name: { type: string }
+        address: { type: string }
+        address_description: { type: string, nullable: true }
+        coordinates:
+          type: object
+          description: 經緯度形狀, 例如 {"type":"Point","coordinates":[121.5,24.1]} 或多邊形/線段等
+          additionalProperties: true
+        type:
+          type: string
+          enum: ['醫療','加水','廁所','洗澡','避難','住宿','物資','心理援助']
+        sub_type: { type: string, nullable: true }
+        info_sources: { type: array, items: { type: string } }
+        verified_at: { type: integer, format: int64, nullable: true }
+        website_url: { type: string, nullable: true }
+        status:
+          type: string
+          enum: ['開放','暫停','關閉']
+        resources: { type: array, items: { type: object, additionalProperties: true } }
+        open_date: { type: string, nullable: true }
+        end_date: { type: string, nullable: true }
+        open_time: { type: string, nullable: true }
+        end_time: { type: string, nullable: true }
+        contact_name: { type: string }
+        contact_phone: { type: string }
+        notes: { type: string, nullable: true }
+        tags: { type: array, items: { type: object, additionalProperties: true } }
+        additional_info: { type: object, additionalProperties: true }
+    PlacePatch:
+      type: object
+      properties:
+        name: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        address_description: { type: string, nullable: true }
+        coordinates:
+          type: object
+          nullable: true
+          additionalProperties: true
+        type: { type: string, nullable: true, enum: ['醫療','加水','廁所','洗澡','避難','住宿','物資','心理援助'] }
+        sub_type: { type: string, nullable: true }
+        info_sources: { type: array, items: { type: string } }
+        verified_at: { type: integer, format: int64, nullable: true }
+        website_url: { type: string, nullable: true }
+        status: { type: string, nullable: true, enum: ['開放','暫停','關閉'] }
+        resources: { type: array, items: { type: object, additionalProperties: true } }
+        open_date: { type: string, nullable: true }
+        end_date: { type: string, nullable: true }
+        open_time: { type: string, nullable: true }
+        end_time: { type: string, nullable: true }
+        contact_name: { type: string, nullable: true }
+        contact_phone: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        tags: { type: array, items: { type: object, additionalProperties: true } }
+        additional_info: { type: object, additionalProperties: true }
+    PlaceCollection:
+      allOf:
+        - $ref: '#/components/schemas/CollectionBase'
+        - type: object
+          properties:
+            member:
+              type: array
+              items: { $ref: '#/components/schemas/Place' }
+    RequirementsHR:
+      type: object
+      properties:
+        id: { type: string }
+        place_id: { type: string }
+        required_type:
+          type: string
+          enum: ['一般志工','專業技術','清潔整理','醫療照護','後勤支援','其他']
+        name: { type: string }
+        unit: { type: string }
+        require_count: { type: integer }
+        received_count: { type: integer }
+        tags: { type: array, items: { type: object, additionalProperties: true } }
+        additional_info: { type: object, additionalProperties: true }
+        created_at: { type: integer, format: int64 }
+        updated_at: { type: integer, format: int64 }
+    RequirementsHRCreate:
+      type: object
+      required: [place_id, required_type, name, unit, require_count]
+      properties:
+        place_id: { type: string }
+        required_type: { type: string, enum: ['一般志工','專業技術','清潔整理','醫療照護','後勤支援','其他'] }
+        name: { type: string }
+        unit: { type: string }
+        require_count: { type: integer }
+        received_count: { type: integer, default: 0 }
+        tags: { type: array, items: { type: object, additionalProperties: true } }
+        additional_info: { type: object, additionalProperties: true }
+    RequirementsHRPatch:
+      type: object
+      properties:
+        place_id: { type: string, nullable: true }
+        required_type: { type: string, nullable: true, enum: ['一般志工','專業技術','清潔整理','醫療照護','後勤支援','其他'] }
+        name: { type: string, nullable: true }
+        unit: { type: string, nullable: true }
+        require_count: { type: integer, nullable: true }
+        received_count: { type: integer, nullable: true }
+        tags: { type: array, items: { type: object, additionalProperties: true } }
+        additional_info: { type: object, additionalProperties: true }
+    RequirementsHRCollection:
+      allOf:
+        - $ref: '#/components/schemas/CollectionBase'
+        - type: object
+          properties:
+            member:
+              type: array
+              items: { $ref: '#/components/schemas/RequirementsHR' }
+    RequirementsSupplies:
+      type: object
+      properties:
+        id: { type: string }
+        place_id: { type: string }
+        required_type: { type: string, description: 需求類型：飲食/醫療用品/生活用品等 }
+        name: { type: string }
+        unit: { type: string }
+        require_count: { type: integer }
+        received_count: { type: integer }
+        tags: { type: array, items: { type: object, additionalProperties: true } }
+        created_at: { type: integer, format: int64 }
+        updated_at: { type: integer, format: int64 }
+        additional_info: { type: object, additionalProperties: true }
+    RequirementsSuppliesCreate:
+      type: object
+      required: [place_id, required_type, name, unit, require_count]
+      properties:
+        place_id: { type: string }
+        required_type: { type: string, description: 需求類型：飲食/醫療用品/生活用品等 }
+        name: { type: string }
+        unit: { type: string }
+        require_count: { type: integer }
+        received_count: { type: integer, default: 0 }
+        tags: { type: array, items: { type: object, additionalProperties: true } }
+        additional_info: { type: object, additionalProperties: true }
+    RequirementsSuppliesPatch:
+      type: object
+      properties:
+        place_id: { type: string, nullable: true }
+        required_type: { type: string, nullable: true }
+        name: { type: string, nullable: true }
+        unit: { type: string, nullable: true }
+        require_count: { type: integer, nullable: true }
+        received_count: { type: integer, nullable: true }
+        tags: { type: array, items: { type: object, additionalProperties: true } }
+        additional_info: { type: object, additionalProperties: true }
+    RequirementsSuppliesCollection:
+      allOf:
+        - $ref: '#/components/schemas/CollectionBase'
+        - type: object
+          properties:
+            member:
+              type: array
+              items: { $ref: '#/components/schemas/RequirementsSupplies' }
     Report:
       type: object
       properties:
@@ -2216,3 +3012,62 @@ components:
             member:
               type: array
               items: { $ref: '#/components/schemas/Report' }
+    SpamResult:
+      type: object
+      properties:
+        id:
+          type: string
+          description: 檢測結果唯一識別碼
+          example: llm-bot-uuid-001
+          readOnly: true
+        target_id:
+          type: string
+          description: 目標資料的唯一識別碼
+          example: human-resource-uuid-001
+        target_type:
+          type: string
+          description: 目標表格名稱 (如 human_resources, supplies)
+          example: supplies
+        target_data:
+          type: object
+          description: 目標原始資料 (JSONB)
+          additionalProperties: true
+          example: {"org":"光復志工","address":"光復鄉"}
+        is_spam:
+          type: boolean
+          description: LLM 判斷是否為垃圾訊息/異常內容
+          example: true
+        judgment:
+          type: string
+          description: LLM 判斷的理由
+          example: 警告語氣，可能為惡意
+        validated_at:
+          type: integer
+          format: int64
+          description: LLM 驗證時間 (Unix timestamp 秒)
+          example: 1727750400
+          readOnly: true
+    SpamResultCreate:
+      type: object
+      required: [id,target_id,target_type,target_data,judgment]
+      properties:
+        id: { type: string, description: 自訂 ID }
+        target_id: { type: string, description: 目標資料 ID }
+        target_type: { type: string, description: 目標表格名稱 }
+        target_data: { type: object, additionalProperties: true, description: 目標原始資料 }
+        is_spam: { type: boolean, default: false, description: 是否為垃圾訊息 }
+        judgment: { type: string, description: 判斷理由 }
+    SpamResultPatch:
+      type: object
+      properties:
+        is_spam: { type: boolean }
+        judgment: { type: string }
+        target_data: { type: object, additionalProperties: true }
+    SpamResultCollection:
+      allOf:
+        - $ref: '#/components/schemas/CollectionBase'
+        - type: object
+          properties:
+            member:
+              type: array
+              items: { $ref: '#/components/schemas/SpamResult' }

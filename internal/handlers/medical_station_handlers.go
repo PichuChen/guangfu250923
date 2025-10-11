@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -44,26 +45,23 @@ func (h *Handler) CreateMedicalStation(c *gin.Context) {
 		in.Status = "active"
 	}
 	ctx := context.Background()
-	var lat, lng *float64
+	var coordsJSON *string
 	if in.Coordinates != nil {
-		lat = in.Coordinates.Lat
-		lng = in.Coordinates.Lng
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			s := string(b)
+			coordsJSON = &s
+		}
 	}
 	var id string
 	var created, updated int64
-	err := h.pool.QueryRow(ctx, `insert into medical_stations(station_type,name,location,detailed_address,phone,contact_person,status,services,equipment,operating_hours,medical_staff,daily_capacity,lat,lng,affiliated_organization,notes,link) values($1,$2,$3,$4,$5,$6,$7,$8::text[],$9::text[],$10,$11,$12,$13,$14,$15,$16,$17) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
-		in.StationType, in.Name, in.Location, in.DetailedAddress, in.Phone, in.ContactPerson, in.Status, in.Services, in.Equipment, in.OperatingHours, in.MedicalStaff, in.DailyCapacity, lat, lng, in.AffiliatedOrganization, in.Notes, in.Link).Scan(&id, &created, &updated)
+	err := h.pool.QueryRow(ctx, `insert into medical_stations(station_type,name,location,detailed_address,phone,contact_person,status,services,equipment,operating_hours,medical_staff,daily_capacity,affiliated_organization,notes,link,coordinates) values($1,$2,$3,$4,$5,$6,$7,$8::text[],$9::text[],$10,$11,$12,$13,$14,$15,$16::jsonb) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
+		in.StationType, in.Name, in.Location, in.DetailedAddress, in.Phone, in.ContactPerson, in.Status, in.Services, in.Equipment, in.OperatingHours, in.MedicalStaff, in.DailyCapacity, in.AffiliatedOrganization, in.Notes, in.Link, coordsJSON).Scan(&id, &created, &updated)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	out := models.MedicalStation{ID: id, StationType: in.StationType, Name: in.Name, Location: in.Location, DetailedAddress: in.DetailedAddress, Phone: in.Phone, ContactPerson: in.ContactPerson, Status: in.Status, Services: in.Services, Equipment: in.Equipment, OperatingHours: in.OperatingHours, MedicalStaff: in.MedicalStaff, DailyCapacity: in.DailyCapacity, AffiliatedOrganization: in.AffiliatedOrganization, Notes: in.Notes, Link: in.Link, CreatedAt: created, UpdatedAt: updated}
-	if lat != nil || lng != nil {
-		out.Coordinates = &struct {
-			Lat *float64 `json:"lat"`
-			Lng *float64 `json:"lng"`
-		}{Lat: lat, Lng: lng}
-	}
+	out.Coordinates = in.Coordinates
 	c.JSON(http.StatusCreated, out)
 }
 
@@ -87,7 +85,7 @@ func (h *Handler) ListMedicalStations(c *gin.Context) {
 	}
 
 	countQuery := "select count(*) from medical_stations"
-	dataQuery := "select id,station_type,name,location,detailed_address,phone,contact_person,status,services,equipment,operating_hours,medical_staff,daily_capacity,lat,lng,affiliated_organization,notes,link,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from medical_stations"
+	dataQuery := "select id,station_type,name,location,detailed_address,phone,contact_person,status,services,equipment,operating_hours,medical_staff,daily_capacity,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,affiliated_organization,notes,link,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from medical_stations"
 	if len(filters) > 0 {
 		where := " where " + strings.Join(filters, " and ")
 		countQuery += where
@@ -118,7 +116,7 @@ func (h *Handler) ListMedicalStations(c *gin.Context) {
 		var services, equipment []string
 		var lat, lng *float64
 		var created, updated int64
-		if err := rows.Scan(&m.ID, &m.StationType, &m.Name, &m.Location, &detailedAddr, &phone, &contactPerson, &m.Status, &services, &equipment, &operatingHours, &medStaff, &dailyCap, &lat, &lng, &affiliatedOrg, &notes, &link, &created, &updated); err != nil {
+	if err := rows.Scan(&m.ID, &m.StationType, &m.Name, &m.Location, &detailedAddr, &phone, &contactPerson, &m.Status, &services, &equipment, &operatingHours, &medStaff, &dailyCap, &lat, &lng, &affiliatedOrg, &notes, &link, &created, &updated); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -247,11 +245,10 @@ func (h *Handler) PatchMedicalStation(c *gin.Context) {
 		add("link=", *in.Link)
 	}
 	if in.Coordinates != nil {
-		if in.Coordinates.Lat != nil {
-			add("lat=", *in.Coordinates.Lat)
-		}
-		if in.Coordinates.Lng != nil {
-			add("lng=", *in.Coordinates.Lng)
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			setParts = append(setParts, "coordinates=$"+strconv.Itoa(idx)+"::jsonb")
+			args = append(args, string(b))
+			idx++
 		}
 	}
 	if len(setParts) == 0 {
@@ -259,7 +256,7 @@ func (h *Handler) PatchMedicalStation(c *gin.Context) {
 		return
 	}
 	setParts = append(setParts, "updated_at=now()")
-	query := "update medical_stations set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,station_type,name,location,detailed_address,phone,contact_person,status,services,equipment,operating_hours,medical_staff,daily_capacity,lat,lng,affiliated_organization,notes,link,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
+	query := "update medical_stations set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,station_type,name,location,detailed_address,phone,contact_person,status,services,equipment,operating_hours,medical_staff,daily_capacity,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,affiliated_organization,notes,link,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
 	args = append(args, id)
 	row := h.pool.QueryRow(ctx, query, args...)
 	var m models.MedicalStation
@@ -301,7 +298,7 @@ func (h *Handler) PatchMedicalStation(c *gin.Context) {
 func (h *Handler) GetMedicalStation(c *gin.Context) {
 	id := c.Param("id")
 	ctx := context.Background()
-	row := h.pool.QueryRow(ctx, `select id,station_type,name,location,detailed_address,phone,contact_person,status,services,equipment,operating_hours,medical_staff,daily_capacity,lat,lng,affiliated_organization,notes,link,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from medical_stations where id=$1`, id)
+	row := h.pool.QueryRow(ctx, `select id,station_type,name,location,detailed_address,phone,contact_person,status,services,equipment,operating_hours,medical_staff,daily_capacity,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,affiliated_organization,notes,link,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from medical_stations where id=$1`, id)
 	var m models.MedicalStation
 	var detailedAddr, phone, contactPerson, operatingHours, affiliatedOrg, notes, link *string
 	var medStaff, dailyCap *int

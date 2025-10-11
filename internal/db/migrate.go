@@ -10,7 +10,7 @@ import (
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	stmts := []string{
 		`create table if not exists volunteer_organizations (
-            id uuid primary key default gen_random_uuid(),
+            id text primary key default gen_random_uuid()::text,
             last_updated timestamptz,
             registration_status text,
             organization_nature text,
@@ -25,7 +25,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
         )`,
 		`create index if not exists idx_vol_org_updated on volunteer_organizations(last_updated)`,
 		`create table if not exists shelters (
-            id uuid primary key default gen_random_uuid(),
+            id text primary key default gen_random_uuid()::text,
             name text not null,
             location text not null,
             phone text not null,
@@ -37,15 +37,14 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
             facilities text[],
             contact_person text,
             notes text,
-            lat double precision,
-            lng double precision,
             opening_hours text,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
         )`,
 		`create index if not exists idx_shelters_status on shelters(status)`,
+		`alter table if exists shelters add column if not exists coordinates jsonb`,
 		`create table if not exists medical_stations (
-            id uuid primary key default gen_random_uuid(),
+            id text primary key default gen_random_uuid()::text,
             station_type text not null,
             name text not null,
             location text not null,
@@ -58,8 +57,6 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
             operating_hours text,
             medical_staff int,
             daily_capacity int,
-            lat double precision,
-            lng double precision,
             affiliated_organization text,
             notes text,
             link text,
@@ -68,8 +65,9 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
         )`,
 		`create index if not exists idx_medical_stations_status on medical_stations(status)`,
 		`create index if not exists idx_medical_stations_station_type on medical_stations(station_type)`,
+		`alter table if exists medical_stations add column if not exists coordinates jsonb`,
 		`create table if not exists mental_health_resources (
-            id uuid primary key default gen_random_uuid(),
+            id text primary key default gen_random_uuid()::text,
             duration_type text not null,
             name text not null,
             service_format text not null,
@@ -81,8 +79,6 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
             languages text[],
             is_free boolean not null,
             location text,
-            lat double precision,
-            lng double precision,
             status text not null,
             capacity int,
             waiting_time text,
@@ -93,8 +89,9 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
         )`,
 		`create index if not exists idx_mh_resources_status on mental_health_resources(status)`,
 		`create index if not exists idx_mh_resources_duration_type on mental_health_resources(duration_type)`,
+		`alter table if exists mental_health_resources add column if not exists coordinates jsonb`,
 		`create table if not exists accommodations (
-            id uuid primary key default gen_random_uuid(),
+            id text primary key default gen_random_uuid()::text,
             township text not null,
             name text not null,
             has_vacancy text not null,
@@ -111,16 +108,15 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
             registration_method text,
             facilities text[],
             distance_to_disaster_area text,
-            lat double precision,
-            lng double precision,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
         )`,
 		`create index if not exists idx_accommodations_status on accommodations(status)`,
 		`create index if not exists idx_accommodations_township on accommodations(township)`,
 		`create index if not exists idx_accommodations_has_vacancy on accommodations(has_vacancy)`,
+		`alter table if exists accommodations add column if not exists coordinates jsonb`,
 		`create table if not exists shower_stations (
-            id uuid primary key default gen_random_uuid(),
+            id text primary key default gen_random_uuid()::text,
             name text not null,
             address text not null,
             phone text,
@@ -138,8 +134,6 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
             distance_to_guangfu text,
             requires_appointment boolean not null,
             contact_method text,
-            lat double precision,
-            lng double precision,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
         )`,
@@ -147,8 +141,9 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		`create index if not exists idx_shower_stations_facility_type on shower_stations(facility_type)`,
 		`create index if not exists idx_shower_stations_is_free on shower_stations(is_free)`,
 		`create index if not exists idx_shower_stations_requires_appointment on shower_stations(requires_appointment)`,
+		`alter table if exists shower_stations add column if not exists coordinates jsonb`,
 		`create table if not exists water_refill_stations (
-            id uuid primary key default gen_random_uuid(),
+            id text primary key default gen_random_uuid()::text,
             name text not null,
             address text not null,
             phone text,
@@ -164,8 +159,6 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
             distance_to_disaster_area text,
             notes text,
             info_source text,
-            lat double precision,
-            lng double precision,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
         )`,
@@ -173,8 +166,9 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		`create index if not exists idx_water_refill_water_type on water_refill_stations(water_type)`,
 		`create index if not exists idx_water_refill_is_free on water_refill_stations(is_free)`,
 		`create index if not exists idx_water_refill_accessibility on water_refill_stations(accessibility)`,
+		`alter table if exists water_refill_stations add column if not exists coordinates jsonb`,
 		`create table if not exists restrooms (
-            id uuid primary key default gen_random_uuid(),
+            id text primary key default gen_random_uuid()::text,
             name text not null,
             address text not null,
             phone text,
@@ -194,8 +188,6 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
             distance_to_disaster_area text,
             notes text,
             info_source text,
-            lat double precision,
-            lng double precision,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
         )`,
@@ -239,6 +231,8 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
             urgent_requests int,
             medical_requests int
         )`,
+		// Add valid_pin to human_resources for edit verification (6-digit pin). Keep nullable for backward compatibility; app enforces on create/patch.
+		`alter table if exists human_resources add column if not exists valid_pin text`,
 		// Relax NOT NULL if previously set
 		`do $$ begin
         perform 1 from information_schema.columns where table_name='human_resources' and column_name='phone' and is_nullable='NO';
@@ -253,6 +247,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		`create index if not exists idx_restrooms_is_free on restrooms(is_free)`,
 		`create index if not exists idx_restrooms_has_water on restrooms(has_water)`,
 		`create index if not exists idx_restrooms_has_lighting on restrooms(has_lighting)`,
+		`alter table if exists restrooms add column if not exists coordinates jsonb`,
 		`create table if not exists request_logs (
             id uuid primary key default gen_random_uuid(),
             method text not null,
@@ -271,7 +266,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
         )`,
 		// New simplified supplies domain (replaces legacy requests/supply_items usage)
 		`create table if not exists supplies (
-            id uuid primary key default gen_random_uuid(),
+            id text primary key default gen_random_uuid()::text,
             name text,
             address text,
             phone text,
@@ -280,11 +275,12 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
         )`,
+		`alter table if exists supplies add column if not exists valid_pin text`,
 		`create index if not exists idx_supplies_updated_at on supplies(updated_at)`,
 		/* Renamed to supply_items (previously 'suppily_items') */
 		`create table if not exists supply_items (
-            id uuid primary key default gen_random_uuid(),
-            supply_id uuid not null references supplies(id) on delete cascade,
+            id text primary key default gen_random_uuid()::text,
+            supply_id text not null references supplies(id) on delete cascade,
             tag text,
             name text,
             received_count int not null default 0,
@@ -307,6 +303,17 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
         end $$;`,
 		`create index if not exists idx_request_logs_created_at on request_logs(created_at)`,
 		`create index if not exists idx_request_logs_status_code on request_logs(status_code)`,
+		// Photos table for user uploads (Cloudflare R2 / S3-compatible)
+		`create table if not exists photos (
+            id text primary key default gen_random_uuid()::text,
+            object_key text not null,
+            original_filename text not null,
+            content_type text not null,
+            size bigint not null,
+            public_url text not null,
+            created_at timestamptz not null default now()
+        )`,
+		`create index if not exists idx_photos_created_at on photos(created_at)`,
 		// Reports table
 		`create table if not exists reports (
             id text primary key,
@@ -328,13 +335,101 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		`create index if not exists idx_reports_updated_at on reports(updated_at)`,
 		// IP denylist for middleware (single IP or CIDR patterns)
 		`create table if not exists ip_denylist (
-            id uuid primary key default gen_random_uuid(),
+            id text primary key default gen_random_uuid()::text,
             pattern text not null,
             reason text,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
         )`,
 		`create index if not exists idx_ip_denylist_pattern on ip_denylist(pattern)`,
+		// Spam detection results from LLM validation
+		`create table if not exists spam_result (
+            id text primary key,
+            target_id text not null,
+            target_type text not null,
+            target_data jsonb not null,
+            is_spam boolean not null,
+            judgment text not null,
+            validated_at bigint not null
+        )`,
+		`create index if not exists idx_spam_result_target_id on spam_result(target_id)`,
+		// Places (generic site registry)
+		`create table if not exists places (
+            id text primary key default gen_random_uuid()::text,
+            name text not null,
+            address text not null default '',
+            address_description text default '',
+            coordinates jsonb not null,
+            type text not null,
+            sub_type text default '',
+            info_sources text[],
+            verified_at bigint,
+            website_url text,
+            status text not null,
+            resources jsonb,
+            open_date text default '',
+            end_date text default '',
+            open_time text default '',
+            end_time text default '',
+            contact_name text not null,
+            contact_phone text not null,
+            notes text default '',
+            tags jsonb default '[]'::jsonb,
+            additional_info jsonb,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            constraint chk_places_status check (status in ('開放','暫停','關閉')),
+            constraint chk_places_type check (type in ('醫療','加水','廁所','洗澡','避難','住宿','物資','心理援助'))
+        )`,
+		`create index if not exists idx_places_status on places(status)`,
+		`create index if not exists idx_places_type on places(type)`,
+		// Requirements HR (human resource needs per place)
+		`create table if not exists requirements_hr (
+            id text primary key default gen_random_uuid()::text,
+            place_id text not null references places(id) on delete cascade,
+            required_type text not null,
+            name text not null,
+            unit text not null,
+            require_count int not null,
+            received_count int not null default 0,
+            tags jsonb,
+            additional_info jsonb,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            constraint chk_requirements_hr_required_type check (required_type in ('一般志工','專業技術','清潔整理','醫療照護','後勤支援','其他'))
+        )`,
+		`create index if not exists idx_requirements_hr_place_id on requirements_hr(place_id)`,
+		`create index if not exists idx_requirements_hr_required_type on requirements_hr(required_type)`,
+		// Requirements Supplies (material supply needs per place)
+		`create table if not exists requirements_supplies (
+            id text primary key default gen_random_uuid()::text,
+            place_id text not null references places(id) on delete cascade,
+            required_type text not null,
+            name text not null,
+            unit text not null,
+            require_count int not null,
+            received_count int not null default 0,
+            tags jsonb,
+            additional_info jsonb,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        )`,
+		`create index if not exists idx_requirements_supplies_place_id on requirements_supplies(place_id)`,
+		`create index if not exists idx_requirements_supplies_required_type on requirements_supplies(required_type)`,
+		// Supply item providers
+		`create table if not exists supply_providers (
+            id text primary key,
+            name text not null,
+            phone text not null,
+            supply_item_id text not null,
+            address text not null,
+            notes text default '',
+            provide_count int not null,
+            provide_unit text,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        )`,
+		`create index if not exists idx_supply_providers_supply_item_id on supply_providers(supply_item_id)`,
 	}
 	for _, s := range stmts {
 		if _, err := pool.Exec(ctx, s); err != nil {

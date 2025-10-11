@@ -53,7 +53,7 @@ func (h *Handler) ListVolunteerOrgs(c *gin.Context) {
 	ctx := context.Background()
 	var total int
 	h.pool.QueryRow(ctx, `select count(*) from volunteer_organizations`).Scan(&total)
-	rows, err := h.pool.Query(ctx, `select id,last_updated,registration_status,organization_nature,organization_name,coordinator,contact_info,registration_method,service_content,meeting_info,notes,image_url from volunteer_organizations order by coalesce(last_updated, id::text)::text desc limit $1 offset $2`, limit, offset)
+	rows, err := h.pool.Query(ctx, `select id,last_updated,registration_status,organization_nature,organization_name,coordinator,contact_info,registration_method,service_content,meeting_info,notes,image_url from volunteer_organizations order by last_updated desc limit $1 offset $2`, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

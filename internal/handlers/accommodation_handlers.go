@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,26 +43,23 @@ func (h *Handler) CreateAccommodation(c *gin.Context) {
 		return
 	}
 	ctx := context.Background()
-	var lat, lng *float64
+	var coordsJSON *string
 	if in.Coordinates != nil {
-		lat = in.Coordinates.Lat
-		lng = in.Coordinates.Lng
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			s := string(b)
+			coordsJSON = &s
+		}
 	}
 	var id string
 	var created, updated int64
-	err := h.pool.QueryRow(ctx, `insert into accommodations(township,name,has_vacancy,available_period,restrictions,contact_info,room_info,address,pricing,info_source,notes,capacity,status,registration_method,facilities,distance_to_disaster_area,lat,lng) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::text[],$16,$17,$18) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
-		in.Township, in.Name, in.HasVacancy, in.AvailablePeriod, in.Restrictions, in.ContactInfo, in.RoomInfo, in.Address, in.Pricing, in.InfoSource, in.Notes, in.Capacity, in.Status, in.RegistrationMethod, in.Facilities, in.DistanceToDisaster, lat, lng).Scan(&id, &created, &updated)
+	err := h.pool.QueryRow(ctx, `insert into accommodations(township,name,has_vacancy,available_period,restrictions,contact_info,room_info,address,pricing,info_source,notes,capacity,status,registration_method,facilities,distance_to_disaster_area,coordinates) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::text[],$16,$17::jsonb) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
+		in.Township, in.Name, in.HasVacancy, in.AvailablePeriod, in.Restrictions, in.ContactInfo, in.RoomInfo, in.Address, in.Pricing, in.InfoSource, in.Notes, in.Capacity, in.Status, in.RegistrationMethod, in.Facilities, in.DistanceToDisaster, coordsJSON).Scan(&id, &created, &updated)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	out := models.Accommodation{ID: id, Township: in.Township, Name: in.Name, HasVacancy: in.HasVacancy, AvailablePeriod: in.AvailablePeriod, Restrictions: in.Restrictions, ContactInfo: in.ContactInfo, RoomInfo: in.RoomInfo, Address: in.Address, Pricing: in.Pricing, InfoSource: in.InfoSource, Notes: in.Notes, Capacity: in.Capacity, Status: in.Status, RegistrationMethod: in.RegistrationMethod, Facilities: in.Facilities, DistanceToDisasterArea: in.DistanceToDisaster, CreatedAt: created, UpdatedAt: updated}
-	if lat != nil || lng != nil {
-		out.Coordinates = &struct {
-			Lat *float64 `json:"lat"`
-			Lng *float64 `json:"lng"`
-		}{Lat: lat, Lng: lng}
-	}
+	out.Coordinates = in.Coordinates
 	c.JSON(http.StatusCreated, out)
 }
 
@@ -153,11 +151,10 @@ func (h *Handler) PatchAccommodation(c *gin.Context) {
 		add("distance_to_disaster_area=", *in.DistanceToDisaster)
 	}
 	if in.Coordinates != nil {
-		if in.Coordinates.Lat != nil {
-			add("lat=", *in.Coordinates.Lat)
-		}
-		if in.Coordinates.Lng != nil {
-			add("lng=", *in.Coordinates.Lng)
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			setParts = append(setParts, "coordinates=$"+strconv.Itoa(idx)+"::jsonb")
+			args = append(args, string(b))
+			idx++
 		}
 	}
 	if len(setParts) == 0 {
@@ -165,7 +162,7 @@ func (h *Handler) PatchAccommodation(c *gin.Context) {
 		return
 	}
 	setParts = append(setParts, "updated_at=now()")
-	query := "update accommodations set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,township,name,has_vacancy,available_period,restrictions,contact_info,room_info,address,pricing,info_source,notes,capacity,status,registration_method,facilities,distance_to_disaster_area,lat,lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
+	query := "update accommodations set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,township,name,has_vacancy,available_period,restrictions,contact_info,room_info,address,pricing,info_source,notes,capacity,status,registration_method,facilities,distance_to_disaster_area,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
 	args = append(args, id)
 	row := h.pool.QueryRow(ctx, query, args...)
 	var a models.Accommodation
@@ -204,7 +201,7 @@ func (h *Handler) PatchAccommodation(c *gin.Context) {
 func (h *Handler) GetAccommodation(c *gin.Context) {
 	id := c.Param("id")
 	ctx := context.Background()
-	row := h.pool.QueryRow(ctx, `select id,township,name,has_vacancy,available_period,restrictions,contact_info,room_info,address,pricing,info_source,notes,capacity,status,registration_method,facilities,distance_to_disaster_area,lat,lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from accommodations where id=$1`, id)
+	row := h.pool.QueryRow(ctx, `select id,township,name,has_vacancy,available_period,restrictions,contact_info,room_info,address,pricing,info_source,notes,capacity,status,registration_method,facilities,distance_to_disaster_area,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from accommodations where id=$1`, id)
 	var a models.Accommodation
 	var restrictions, roomInfo, infoSource, notes, regMethod, distance *string
 	var facilities []string
@@ -260,7 +257,7 @@ func (h *Handler) ListAccommodations(c *gin.Context) {
 		args = append(args, hasVacancy)
 	}
 	countQ := "select count(*) from accommodations"
-	dataQ := "select id,township,name,has_vacancy,available_period,restrictions,contact_info,room_info,address,pricing,info_source,notes,capacity,status,registration_method,facilities,distance_to_disaster_area,lat,lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from accommodations"
+	dataQ := "select id,township,name,has_vacancy,available_period,restrictions,contact_info,room_info,address,pricing,info_source,notes,capacity,status,registration_method,facilities,distance_to_disaster_area,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from accommodations"
 	if len(filters) > 0 {
 		where := " where " + strings.Join(filters, " and ")
 		countQ += where

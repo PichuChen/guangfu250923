@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -48,27 +49,24 @@ func (h *Handler) CreateWaterRefillStation(c *gin.Context) {
 	if in.Accessibility != nil {
 		accessible = *in.Accessibility
 	}
-	var lat, lng *float64
+	var coordsJSON *string
 	if in.Coordinates != nil {
-		lat = in.Coordinates.Lat
-		lng = in.Coordinates.Lng
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			s := string(b)
+			coordsJSON = &s
+		}
 	}
 	ctx := context.Background()
 	var id string
 	var created, updated int64
-	err := h.pool.QueryRow(ctx, `insert into water_refill_stations(name,address,phone,water_type,opening_hours,is_free,container_required,daily_capacity,status,water_quality,facilities,accessibility,distance_to_disaster_area,notes,info_source,lat,lng) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::text[],$12,$13,$14,$15,$16,$17) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
-		in.Name, in.Address, in.Phone, in.WaterType, in.OpeningHours, isFree, in.ContainerRequired, in.DailyCapacity, in.Status, in.WaterQuality, in.Facilities, accessible, in.DistanceToDisasterArea, in.Notes, in.InfoSource, lat, lng).Scan(&id, &created, &updated)
+	err := h.pool.QueryRow(ctx, `insert into water_refill_stations(name,address,phone,water_type,opening_hours,is_free,container_required,daily_capacity,status,water_quality,facilities,accessibility,distance_to_disaster_area,notes,info_source,coordinates) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::text[],$12,$13,$14,$15,$16::jsonb) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
+		in.Name, in.Address, in.Phone, in.WaterType, in.OpeningHours, isFree, in.ContainerRequired, in.DailyCapacity, in.Status, in.WaterQuality, in.Facilities, accessible, in.DistanceToDisasterArea, in.Notes, in.InfoSource, coordsJSON).Scan(&id, &created, &updated)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	out := models.WaterRefillStation{ID: id, Name: in.Name, Address: in.Address, Phone: in.Phone, WaterType: in.WaterType, OpeningHours: in.OpeningHours, IsFree: isFree, ContainerRequired: in.ContainerRequired, DailyCapacity: in.DailyCapacity, Status: in.Status, WaterQuality: in.WaterQuality, Facilities: in.Facilities, Accessibility: accessible, DistanceToDisasterArea: in.DistanceToDisasterArea, Notes: in.Notes, InfoSource: in.InfoSource, CreatedAt: created, UpdatedAt: updated}
-	if lat != nil || lng != nil {
-		out.Coordinates = &struct {
-			Lat *float64 `json:"lat"`
-			Lng *float64 `json:"lng"`
-		}{Lat: lat, Lng: lng}
-	}
+	out.Coordinates = in.Coordinates
 	c.JSON(http.StatusCreated, out)
 }
 
@@ -156,11 +154,10 @@ func (h *Handler) PatchWaterRefillStation(c *gin.Context) {
 		add("info_source=", *in.InfoSource)
 	}
 	if in.Coordinates != nil {
-		if in.Coordinates.Lat != nil {
-			add("lat=", *in.Coordinates.Lat)
-		}
-		if in.Coordinates.Lng != nil {
-			add("lng=", *in.Coordinates.Lng)
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			setParts = append(setParts, "coordinates=$"+strconv.Itoa(idx)+"::jsonb")
+			args = append(args, string(b))
+			idx++
 		}
 	}
 	if len(setParts) == 0 {
@@ -168,7 +165,7 @@ func (h *Handler) PatchWaterRefillStation(c *gin.Context) {
 		return
 	}
 	setParts = append(setParts, "updated_at=now()")
-	query := "update water_refill_stations set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,name,address,phone,water_type,opening_hours,is_free,container_required,daily_capacity,status,water_quality,facilities,accessibility,distance_to_disaster_area,notes,info_source,lat,lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
+	query := "update water_refill_stations set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,name,address,phone,water_type,opening_hours,is_free,container_required,daily_capacity,status,water_quality,facilities,accessibility,distance_to_disaster_area,notes,info_source,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
 	args = append(args, id)
 	row := h.pool.QueryRow(ctx, query, args...)
 	var w models.WaterRefillStation
@@ -210,7 +207,7 @@ func (h *Handler) PatchWaterRefillStation(c *gin.Context) {
 func (h *Handler) GetWaterRefillStation(c *gin.Context) {
 	id := c.Param("id")
 	ctx := context.Background()
-	row := h.pool.QueryRow(ctx, `select id,name,address,phone,water_type,opening_hours,is_free,container_required,daily_capacity,status,water_quality,facilities,accessibility,distance_to_disaster_area,notes,info_source,lat,lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from water_refill_stations where id=$1`, id)
+	row := h.pool.QueryRow(ctx, `select id,name,address,phone,water_type,opening_hours,is_free,container_required,daily_capacity,status,water_quality,facilities,accessibility,distance_to_disaster_area,notes,info_source,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from water_refill_stations where id=$1`, id)
 	var w models.WaterRefillStation
 	var phone, containerReq, waterQuality, distance, notes, infoSource *string
 	var dailyCap *int
@@ -276,7 +273,7 @@ func (h *Handler) ListWaterRefillStations(c *gin.Context) {
 		args = append(args, val)
 	}
 	countQ := "select count(*) from water_refill_stations"
-	dataQ := "select id,name,address,phone,water_type,opening_hours,is_free,container_required,daily_capacity,status,water_quality,facilities,accessibility,distance_to_disaster_area,notes,info_source,lat,lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from water_refill_stations"
+	dataQ := "select id,name,address,phone,water_type,opening_hours,is_free,container_required,daily_capacity,status,water_quality,facilities,accessibility,distance_to_disaster_area,notes,info_source,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from water_refill_stations"
 	if len(filters) > 0 {
 		where := " where " + strings.Join(filters, " and ")
 		countQ += where

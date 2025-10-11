@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,27 +41,24 @@ func (h *Handler) CreateShelter(c *gin.Context) {
 	if in.Status == "" {
 		in.Status = "open"
 	}
-	var lat, lng *float64
+	var coordsJSON *string
 	if in.Coordinates != nil {
-		lat = in.Coordinates.Lat
-		lng = in.Coordinates.Lng
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			s := string(b)
+			coordsJSON = &s
+		}
 	}
 	ctx := context.Background()
 	var id string
 	var created, updated int64
-	err := h.pool.QueryRow(ctx, `insert into shelters(name,location,phone,link,status,capacity,current_occupancy,available_spaces,facilities,contact_person,notes,lat,lng,opening_hours) values($1,$2,$3,$4,$5,$6,$7,$8,$9::text[],$10,$11,$12,$13,$14) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
-		in.Name, in.Location, in.Phone, in.Link, in.Status, in.Capacity, in.CurrentOccupancy, in.AvailableSpaces, in.Facilities, in.ContactPerson, in.Notes, lat, lng, in.OpeningHours).Scan(&id, &created, &updated)
+	err := h.pool.QueryRow(ctx, `insert into shelters(name,location,phone,link,status,capacity,current_occupancy,available_spaces,facilities,contact_person,notes,opening_hours,coordinates) values($1,$2,$3,$4,$5,$6,$7,$8,$9::text[],$10,$11,$12,$13::jsonb) returning id,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint`,
+		in.Name, in.Location, in.Phone, in.Link, in.Status, in.Capacity, in.CurrentOccupancy, in.AvailableSpaces, in.Facilities, in.ContactPerson, in.Notes, in.OpeningHours, coordsJSON).Scan(&id, &created, &updated)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	out := models.Shelter{ID: id, Name: in.Name, Location: in.Location, Phone: in.Phone, Link: in.Link, Status: in.Status, Capacity: in.Capacity, CurrentOccupancy: in.CurrentOccupancy, AvailableSpaces: in.AvailableSpaces, Facilities: in.Facilities, ContactPerson: in.ContactPerson, Notes: in.Notes, OpeningHours: in.OpeningHours, CreatedAt: created, UpdatedAt: updated}
-	if lat != nil || lng != nil {
-		out.Coordinates = &struct {
-			Lat *float64 `json:"lat"`
-			Lng *float64 `json:"lng"`
-		}{Lat: lat, Lng: lng}
-	}
+	out.Coordinates = in.Coordinates
 	c.JSON(http.StatusCreated, out)
 }
 
@@ -75,7 +73,7 @@ func (h *Handler) ListShelters(c *gin.Context) {
 	} else {
 		h.pool.QueryRow(ctx, `select count(*) from shelters`).Scan(&total)
 	}
-	base := `select id,name,location,phone,link,status,capacity,current_occupancy,available_spaces,facilities,contact_person,notes,lat,lng,opening_hours,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from shelters`
+	base := `select id,name,location,phone,link,status,capacity,current_occupancy,available_spaces,facilities,contact_person,notes,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,opening_hours,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from shelters`
 	var rows pgx.Rows
 	var err error
 	if status != "" {
@@ -141,7 +139,7 @@ func (h *Handler) ListShelters(c *gin.Context) {
 func (h *Handler) GetShelter(c *gin.Context) {
 	id := c.Param("id")
 	ctx := context.Background()
-	row := h.pool.QueryRow(ctx, `select id,name,location,phone,link,status,capacity,current_occupancy,available_spaces,facilities,contact_person,notes,lat,lng,opening_hours,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from shelters where id=$1`, id)
+	row := h.pool.QueryRow(ctx, `select id,name,location,phone,link,status,capacity,current_occupancy,available_spaces,facilities,contact_person,notes,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,opening_hours,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint from shelters where id=$1`, id)
 	var s models.Shelter
 	var link, contactPerson, notes, opening *string
 	var capacity, currentOcc, avail *int
@@ -245,11 +243,11 @@ func (h *Handler) PatchShelter(c *gin.Context) {
 		add("notes=", *in.Notes)
 	}
 	if in.Coordinates != nil {
-		if in.Coordinates.Lat != nil {
-			add("lat=", *in.Coordinates.Lat)
-		}
-		if in.Coordinates.Lng != nil {
-			add("lng=", *in.Coordinates.Lng)
+		if b, err := json.Marshal(in.Coordinates); err == nil {
+			// coordinates is jsonb
+			setParts = append(setParts, "coordinates=$"+strconv.Itoa(idx)+"::jsonb")
+			args = append(args, string(b))
+			idx++
 		}
 	}
 	if in.OpeningHours != nil {
@@ -261,7 +259,7 @@ func (h *Handler) PatchShelter(c *gin.Context) {
 	}
 	// always update updated_at
 	setParts = append(setParts, "updated_at=now()")
-	query := "update shelters set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,name,location,phone,link,status,capacity,current_occupancy,available_spaces,facilities,contact_person,notes,lat,lng,opening_hours,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
+	query := "update shelters set " + strings.Join(setParts, ",") + " where id=$" + strconv.Itoa(idx) + " returning id,name,location,phone,link,status,capacity,current_occupancy,available_spaces,facilities,contact_person,notes,(coordinates->>'lat')::double precision as lat,(coordinates->>'lng')::double precision as lng,opening_hours,extract(epoch from created_at)::bigint,extract(epoch from updated_at)::bigint"
 	args = append(args, id)
 	row := h.pool.QueryRow(ctx, query, args...)
 	var s models.Shelter
