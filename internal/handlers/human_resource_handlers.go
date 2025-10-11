@@ -14,6 +14,7 @@ import (
 
 	"guangfu250923/internal/middleware"
 	"guangfu250923/internal/models"
+	"guangfu250923/internal/notify"
 )
 
 // ListHumanResources returns paginated human resource rows
@@ -346,6 +347,26 @@ func (h *Handler) CreateHumanResource(c *gin.Context) {
 	hr.MedicalRequests = medicalReq
 
 	c.JSON(http.StatusCreated, hr)
+	// Notify via Discord webhook (fire-and-forget) if configured
+	webhook := os.Getenv("DISCORD_WEBHOOK_URL")
+	if webhook != "" {
+		clientIP := extractClientIP(c)
+		country := strings.ToUpper(strings.TrimSpace(c.GetHeader("Cf-Ipcountry")))
+		ipWithCountry := clientIP
+		if country != "" {
+			ipWithCountry = clientIP + " (" + country + ")"
+		}
+		ua := c.GetHeader("User-Agent")
+		msg := "**有人報名人力需求了 🛠️**\n"
+		msg += "ID: " + hr.ID + "\n"
+		msg += "Org: " + hr.Org + "\n"
+		msg += "Role: " + hr.RoleName + "\n"
+		msg += "Need: " + strconv.Itoa(hr.HeadcountNeed) + "\n"
+		msg += "Notes IP: " + ipWithCountry + "\n"
+		msg += "User-Agent: " + ua
+		payload := map[string]any{"id": hr.ID, "org": hr.Org, "role": hr.RoleName, "need": hr.HeadcountNeed, "ip": clientIP, "country": country, "user_agent": ua}
+		notify.SendDiscordWebhookAndRecordAsync(h.pool, webhook, "hr.create", hr.ID, msg, payload)
+	}
 }
 
 // ----- Patch -----
@@ -609,6 +630,26 @@ func (h *Handler) PatchHumanResource(c *gin.Context) {
 	hr.UrgentRequests = urgentReq
 	hr.MedicalRequests = medicalReq
 	c.JSON(http.StatusOK, hr)
+
+	// Notify via Discord webhook (fire-and-forget) if configured
+	webhook := os.Getenv("DISCORD_WEBHOOK_URL")
+	if webhook != "" {
+		clientIP := extractClientIP(c)
+		country := strings.ToUpper(strings.TrimSpace(c.GetHeader("Cf-Ipcountry")))
+		ipWithCountry := clientIP
+		if country != "" {
+			ipWithCountry = clientIP + " (" + country + ")"
+		}
+		ua := c.GetHeader("User-Agent")
+		msg := "**有人報名人力需求了 👷🏻**\n"
+		msg += "ID: " + hr.ID + "\n"
+		msg += "Org: " + hr.Org + "\n"
+		msg += "Role: " + hr.RoleName + "\n"
+		msg += "IP: " + ipWithCountry + "\n"
+		msg += "User-Agent: " + ua
+		payload := map[string]any{"id": hr.ID, "org": hr.Org, "role": hr.RoleName, "ip": clientIP, "country": country, "user_agent": ua}
+		notify.SendDiscordWebhookAndRecordAsync(h.pool, webhook, "hr.patch", hr.ID, msg, payload)
+	}
 }
 
 // sliceOrNil ensures empty slice becomes nil (to store NULL vs '{}') when appropriate.
