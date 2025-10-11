@@ -4,6 +4,7 @@ import (
 	"context"
 	"guangfu250923/internal/models"
 	"guangfu250923/internal/notify"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -94,7 +95,12 @@ func (h *Handler) CreateSupply(c *gin.Context) {
 	// Notify via Discord webhook (fire-and-forget) if configured
 	webhook := os.Getenv("DISCORD_WEBHOOK_URL")
 	if webhook != "" {
-		clientIP := c.ClientIP()
+		clientIP := extractClientIP(c)
+		country := strings.ToUpper(strings.TrimSpace(c.GetHeader("Cf-Ipcountry")))
+		ipWithCountry := clientIP
+		if country != "" {
+			ipWithCountry = clientIP + " (" + country + ")"
+		}
 		ua := c.GetHeader("User-Agent")
 		name := "(empty)"
 		if in.Name != nil {
@@ -114,11 +120,50 @@ func (h *Handler) CreateSupply(c *gin.Context) {
 			msg += "Item: " + stringOrEmpty(it.Name) + " x" + strconv.Itoa(it.TotalCount) + "\n"
 		}
 		msg += "Notes: " + notes + "\n"
-		msg += "IP: " + clientIP + "\n"
+		msg += "IP: " + ipWithCountry + "\n"
 		msg += "User-Agent: " + ua
-		payload := map[string]any{"id": id, "name": name, "phone": stringOrEmpty(in.Phone), "address": stringOrEmpty(in.Address), "notes": notes, "ip": clientIP, "user_agent": ua}
+		payload := map[string]any{"id": id, "name": name, "phone": stringOrEmpty(in.Phone), "address": stringOrEmpty(in.Address), "notes": notes, "ip": clientIP, "country": country, "user_agent": ua}
 		notify.SendDiscordWebhookAndRecordAsync(h.pool, webhook, "supply.create", id, msg, payload)
 	}
+}
+
+// extractClientIP attempts to prefer Cloudflare headers and falls back to other proxies
+func extractClientIP(c *gin.Context) string {
+	try := func(val string) (string, bool) {
+		if val == "" {
+			return "", false
+		}
+		v := strings.TrimSpace(val)
+		if v == "" {
+			return "", false
+		}
+		if net.ParseIP(v) == nil {
+			return "", false
+		}
+		return v, true
+	}
+	if ip, ok := try(c.Request.Header.Get("CF-Connecting-IP")); ok {
+		return ip
+	}
+	if ip, ok := try(c.Request.Header.Get("True-Client-IP")); ok {
+		return ip
+	}
+	if ip, ok := try(c.Request.Header.Get("X-Real-IP")); ok {
+		return ip
+	}
+	if xff := c.Request.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		for _, p := range parts {
+			cand := strings.TrimSpace(p)
+			if cand == "" {
+				continue
+			}
+			if net.ParseIP(cand) != nil {
+				return cand
+			}
+		}
+	}
+	return c.ClientIP()
 }
 
 func (h *Handler) ListSupplies(c *gin.Context) {
@@ -374,16 +419,21 @@ func (h *Handler) PatchSupply(c *gin.Context) {
 	// Notify via Discord webhook (fire-and-forget) if configured
 	webhook := os.Getenv("DISCORD_WEBHOOK_URL")
 	if webhook != "" {
-		clientIP := c.ClientIP()
+		clientIP := extractClientIP(c)
+		country := strings.ToUpper(strings.TrimSpace(c.GetHeader("Cf-Ipcountry")))
+		ipWithCountry := clientIP
+		if country != "" {
+			ipWithCountry = clientIP + " (" + country + ")"
+		}
 		ua := c.GetHeader("User-Agent")
 		msg := "**有人提供物資了 🎁**\n"
 		msg += "ID: " + s.ID + "\n"
 		if s.Name != nil {
 			msg += "Name: " + *s.Name + "\n"
 		}
-		msg += "IP: " + clientIP + "\n"
+		msg += "IP: " + ipWithCountry + "\n"
 		msg += "User-Agent: " + ua
-		payload := map[string]any{"id": s.ID, "name": s.Name, "ip": clientIP, "user_agent": ua}
+		payload := map[string]any{"id": s.ID, "name": s.Name, "ip": clientIP, "country": country, "user_agent": ua}
 		notify.SendDiscordWebhookAndRecordAsync(h.pool, webhook, "supply.patch", s.ID, msg, payload)
 	}
 }
