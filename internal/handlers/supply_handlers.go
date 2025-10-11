@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"guangfu250923/internal/models"
+	"guangfu250923/internal/notify"
 	"net/http"
 	"os"
 	"strconv"
@@ -89,6 +90,35 @@ func (h *Handler) CreateSupply(c *gin.Context) {
 	}
 	resp := gin.H{"@context": "https://www.w3.org/ns/hydra/context.jsonld", "@type": "Supply", "id": id, "name": in.Name, "address": in.Address, "phone": in.Phone, "notes": in.Notes, "pii_date": in.PiiDate, "created_at": created, "updated_at": updated, "supplies": createdItems}
 	c.JSON(http.StatusCreated, resp)
+
+	// Notify via Discord webhook (fire-and-forget) if configured
+	webhook := os.Getenv("DISCORD_WEBHOOK_URL")
+	if webhook != "" {
+		clientIP := c.ClientIP()
+		ua := c.GetHeader("User-Agent")
+		name := "(empty)"
+		if in.Name != nil {
+			name = *in.Name
+		}
+		notes := ""
+		if in.Notes != nil {
+			notes = *in.Notes
+		}
+		msg := "**物資需求出現了 🐝**\n"
+		msg += "Name: " + name + "\n"
+		msg += "ID: " + id + "\n"
+		msg += "Phone: " + stringOrEmpty(in.Phone) + "\n"
+		msg += "Address: " + stringOrEmpty(in.Address) + "\n"
+		if len(createdItems) > 0 {
+			it := createdItems[0]
+			msg += "Item: " + stringOrEmpty(it.Name) + " x" + strconv.Itoa(it.TotalCount) + "\n"
+		}
+		msg += "Notes: " + notes + "\n"
+		msg += "IP: " + clientIP + "\n"
+		msg += "User-Agent: " + ua
+		payload := map[string]any{"id": id, "name": name, "phone": stringOrEmpty(in.Phone), "address": stringOrEmpty(in.Address), "notes": notes, "ip": clientIP, "user_agent": ua}
+		notify.SendDiscordWebhookAndRecordAsync(h.pool, webhook, "supply.create", id, msg, payload)
+	}
 }
 
 func (h *Handler) ListSupplies(c *gin.Context) {
@@ -340,6 +370,30 @@ func (h *Handler) PatchSupply(c *gin.Context) {
 	s.CreatedAt = created
 	s.UpdatedAt = updated
 	c.JSON(http.StatusOK, s)
+
+	// Notify via Discord webhook (fire-and-forget) if configured
+	webhook := os.Getenv("DISCORD_WEBHOOK_URL")
+	if webhook != "" {
+		clientIP := c.ClientIP()
+		ua := c.GetHeader("User-Agent")
+		msg := "**有人提供物資了 🎁**\n"
+		msg += "ID: " + s.ID + "\n"
+		if s.Name != nil {
+			msg += "Name: " + *s.Name + "\n"
+		}
+		msg += "IP: " + clientIP + "\n"
+		msg += "User-Agent: " + ua
+		payload := map[string]any{"id": s.ID, "name": s.Name, "ip": clientIP, "user_agent": ua}
+		notify.SendDiscordWebhookAndRecordAsync(h.pool, webhook, "supply.patch", s.ID, msg, payload)
+	}
+}
+
+// helper
+func stringOrEmpty(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 func (h *Handler) CreateSupplyItem(c *gin.Context) {

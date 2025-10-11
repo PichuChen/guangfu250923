@@ -303,6 +303,19 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
         end $$;`,
 		`create index if not exists idx_request_logs_created_at on request_logs(created_at)`,
 		`create index if not exists idx_request_logs_status_code on request_logs(status_code)`,
+        // Store webhook delivery results for later inspection/deletion
+        `create table if not exists webhook_deliveries (
+            id uuid primary key default gen_random_uuid(),
+            webhook_url text not null,
+            event_type text,
+            payload jsonb,
+            response_status int,
+            response_body text,
+            error text,
+            resource_id text,
+            created_at timestamptz not null default now()
+        )`,
+        `create index if not exists idx_webhook_deliveries_event_type on webhook_deliveries(event_type)`,
 		// Photos table for user uploads (Cloudflare R2 / S3-compatible)
 		`create table if not exists photos (
             id text primary key default gen_random_uuid()::text,
