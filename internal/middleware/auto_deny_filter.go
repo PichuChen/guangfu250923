@@ -98,7 +98,7 @@ func NewWriteRequestCache(
 			pat = cip
 		}
 
-		rp.patterns[pat] += 1
-		return rp.patterns[pat] > writeRateLimitCount
+		count := rp.patterns[pat] + 1
+		return count > writeRateLimitCount
 	}
 }
