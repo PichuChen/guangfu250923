@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -179,6 +180,11 @@ func IPFilter(pool *pgxpool.Pool) gin.HandlerFunc {
 		c.Abort()
 	}
 
+	writeRateLimitSeconds, _ := strconv.Atoi(os.Getenv("WRITE_RATE_LIMIT_INTERVAL_SECONDS"))
+	writeRateLimitCount, _ := strconv.Atoi(os.Getenv("WRITE_RATE_LIMIT_COUNT"))
+	writeRateLimitPathPattern := os.Getenv("WRITE_RATE_LIMIT_PATH_PATTERN")
+	checkRateLimit := NewWriteRequestCache(pool, 60*time.Second, writeRateLimitSeconds, writeRateLimitCount, writeRateLimitPathPattern)
+
 	return func(c *gin.Context) {
 		if c.Request.Method != http.MethodPost && c.Request.Method != http.MethodPatch {
 			c.Next()
@@ -191,6 +197,20 @@ func IPFilter(pool *pgxpool.Pool) gin.HandlerFunc {
 		// Denylist precedes allow rules.
 		if isIPDenied(cip, dc) {
 			block(c, "ip denied", cip, gin.H{})
+			return
+		}
+
+		if checkRateLimit(c) {
+			var itemID string
+			dc.singles[cip] = struct{}{}
+			err := pool.QueryRow(context.Background(), `insert into ip_denylist(pattern,reason) values($1,$2) returning id`,
+				cip, "rate limit").Scan(&itemID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			block(c, "ip not allowed", cip, gin.H{})
 			return
 		}
 
