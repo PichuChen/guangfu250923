@@ -81,7 +81,7 @@ func (h *Handler) ListHumanResources(c *gin.Context) {
 		base += clause
 		countSQL += clause
 	}
-	base += " order by created_at desc limit $" + strconv.Itoa(idx) + " offset $" + strconv.Itoa(idx+1)
+	base += " order by updated_at desc limit $" + strconv.Itoa(idx) + " offset $" + strconv.Itoa(idx+1)
 	args = append(args, limit, offset)
 
 	ctx := context.Background()
