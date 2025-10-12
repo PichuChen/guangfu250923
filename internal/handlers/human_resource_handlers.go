@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -356,13 +357,29 @@ func (h *Handler) CreateHumanResource(c *gin.Context) {
 		if country != "" {
 			ipWithCountry = clientIP + " (" + country + ")"
 		}
+		note := "無"
+		if hr.AssignmentNotes != nil && strings.TrimSpace(*hr.AssignmentNotes) != "" {
+			note = *hr.AssignmentNotes
+		}
+		needText := ""
+		if hr.HeadcountNeed > 10 {
+			needText = fmt.Sprintf("**%d** 人 (人數較多)", hr.HeadcountNeed)
+		} else {
+			needText = strconv.Itoa(hr.HeadcountNeed) + " 人"
+		}
+		needType := ""
+		if hr.RoleType != "" {
+			needType = hr.RoleType + " / " + hr.RoleName
+		}
 		ua := c.GetHeader("User-Agent")
-		msg := "**有人報名人力需求了 🛠️**\n"
-		msg += "ID: " + hr.ID + "\n"
-		msg += "Org: " + hr.Org + "\n"
-		msg += "Role: " + hr.RoleName + "\n"
-		msg += "Need: " + strconv.Itoa(hr.HeadcountNeed) + "\n"
-		msg += "Notes IP: " + ipWithCountry + "\n"
+		msg := "**有人新增人力需求了 (開單) 🛠️**\n"
+		msg += "標題: " + hr.Org + "\n"
+		msg += "需求類型: " + needType + "\n"
+		msg += "需求人數: " + needText + "\n"
+		msg += "備註: " + note + "\n"
+		msg += "發出時間: <t:" + strconv.FormatInt(time.Now().Unix(), 10) + ":F>\n"
+		msg += "資料庫ID: " + hr.ID + "\n"
+		msg += "IP: " + ipWithCountry + "\n"
 		msg += "User-Agent: " + ua
 		payload := map[string]any{"id": hr.ID, "org": hr.Org, "role": hr.RoleName, "need": hr.HeadcountNeed, "ip": clientIP, "country": country, "user_agent": ua}
 		notify.SendDiscordWebhookAndRecordAsync(h.pool, webhook, "hr.create", hr.ID, msg, payload)
@@ -640,11 +657,11 @@ func (h *Handler) PatchHumanResource(c *gin.Context) {
 		if country != "" {
 			ipWithCountry = clientIP + " (" + country + ")"
 		}
+		needText := fmt.Sprintf("%d/%d 人", hr.HeadcountGot, hr.HeadcountNeed)
 		ua := c.GetHeader("User-Agent")
-		msg := "**有人報名人力需求了 👷🏻**\n"
-		msg += "ID: " + hr.ID + "\n"
-		msg += "Org: " + hr.Org + "\n"
-		msg += "Role: " + hr.RoleName + "\n"
+		msg := "**有人報名人力需求了 (報名) 👷🏻**\n"
+		msg += "標題: " + hr.Org + "(" + hr.ID + ")" + "\n"
+		msg += "報名/需求人數: " + needText + "\n"
 		msg += "IP: " + ipWithCountry + "\n"
 		msg += "User-Agent: " + ua
 		payload := map[string]any{"id": hr.ID, "org": hr.Org, "role": hr.RoleName, "ip": clientIP, "country": country, "user_agent": ua}
