@@ -658,9 +658,12 @@ func (h *Handler) PatchHumanResource(c *gin.Context) {
 			ipWithCountry = clientIP + " (" + country + ")"
 		}
 		needText := fmt.Sprintf("%d/%d 人", hr.HeadcountGot, hr.HeadcountNeed)
+		if hr.HeadcountNeed == hr.HeadcountGot {
+			needText = fmt.Sprintf("%d/%d 人 (**已全部到位**)", hr.HeadcountGot, hr.HeadcountNeed)
+		}
 		ua := c.GetHeader("User-Agent")
 		msg := "**有人報名人力需求了 (報名) 👷🏻**\n"
-		msg += "標題: " + hr.Org + "(" + hr.ID + ")" + "\n"
+		msg += "標題: " + hr.Org + " (" + hr.ID + ")" + "\n"
 		msg += "報名/需求人數: " + needText + "\n"
 		msg += "IP: " + ipWithCountry + "\n"
 		msg += "User-Agent: " + ua
