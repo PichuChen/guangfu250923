@@ -35,6 +35,7 @@ func (h *Handler) ListHumanResources(c *gin.Context) {
 	status := c.Query("status")
 	roleStatus := c.Query("role_status")
 	roleType := c.Query("role_type")
+	q := c.Query("q_role")
 
 	where := []string{}
 	args := []interface{}{}
@@ -47,6 +48,25 @@ func (h *Handler) ListHumanResources(c *gin.Context) {
 	if status != "" {
 		add("status=", status)
 	}
+	// handle keyword query after add is defined so we can use idx/args
+	if q != "" {
+		parts := strings.Split(q, ",")
+		subs := []string{}
+		for _, raw := range parts {
+			term := strings.TrimSpace(raw)
+			if term == "" {
+				continue
+			}
+			// match across assignment_notes, role_name, role_type by concatenating columns
+			subs = append(subs, "(coalesce(assignment_notes,'') || ' ' || coalesce(role_name,'') || ' ' || coalesce(role_type,'')) ILIKE $"+strconv.Itoa(idx))
+			args = append(args, "%"+term+"%")
+			idx++
+		}
+		if len(subs) > 0 {
+			where = append(where, "("+strings.Join(subs, " OR ")+")")
+		}
+	}
+
 	if roleStatus != "" {
 		add("role_status=", roleStatus)
 	}

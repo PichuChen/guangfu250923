@@ -858,6 +858,12 @@ paths:
           name: role_type
           schema: { type: string }
         - in: query
+          name: q_role
+          schema: { type: string }
+          description: |-
+            Comma-separated keywords (OR semantics). Matches any term (case-insensitive)
+            found in `assignment_notes`, `role_name`, or `role_type`. Example: "機具,山貓,怪手,挖土機".
+        - in: query
           name: limit
           schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
         - in: query
