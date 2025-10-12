@@ -377,7 +377,7 @@ func (h *Handler) CreateHumanResource(c *gin.Context) {
 		msg += "需求類型: " + needType + "\n"
 		msg += "需求人數: " + needText + "\n"
 		msg += "備註: " + note + "\n"
-		msg += "發出時間: <t:" + strconv.FormatInt(time.Now().Unix(), 10) + ":F>\n"
+		msg += "發出時間: <t:" + strconv.FormatInt(hr.CreatedAt, 10) + ":F>\n"
 		msg += "資料庫ID: " + hr.ID + "\n"
 		msg += "IP: " + ipWithCountry + "\n"
 		msg += "User-Agent: " + ua
