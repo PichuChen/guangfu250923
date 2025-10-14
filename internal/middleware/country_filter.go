@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"guangfu250923/internal/notify"
 	"net"
 	"net/http"
 	"os"
@@ -208,6 +209,23 @@ func IPFilter(pool *pgxpool.Pool) gin.HandlerFunc {
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
+			}
+
+			webhook := os.Getenv("DISCORD_WEBHOOK_URL")
+			if webhook != "" {
+				clientIP := clientIP(c)
+				country := strings.ToUpper(strings.TrimSpace(c.GetHeader("Cf-Ipcountry")))
+				ipWithCountry := clientIP
+				if country != "" {
+					ipWithCountry = clientIP + " (" + country + ")"
+				}
+
+				ua := c.GetHeader("User-Agent")
+				msg := "**自動封鎖 IP 🚫**\n"
+				msg += "IP: " + ipWithCountry + "\n"
+				msg += "User-Agent: " + ua
+				payload := map[string]any{"id": itemID, "ip": clientIP, "country": country, "user_agent": ua}
+				notify.SendDiscordWebhookAndRecordAsync(pool, webhook, "ip.rate_limit", itemID, msg, payload)
 			}
 
 			block(c, "ip not allowed", cip, gin.H{})

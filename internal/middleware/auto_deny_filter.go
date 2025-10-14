@@ -39,7 +39,7 @@ func NewWriteRequestCache(
 			where ip is not null and created_at > now() - ($1 * '1 second'::interval) 
 			and method in ('POST','PATCH')
 			group by ip, path`,
-			writeRateLimitSeconds-60)
+			writeRateLimitSeconds)
 		if err != nil {
 			return r
 		}
@@ -97,8 +97,11 @@ func NewWriteRequestCache(
 		} else {
 			pat = cip
 		}
-
-		count := rp.patterns[pat] + 1
-		return count > writeRateLimitCount
+		rp.patterns[pat]++
+		count := rp.patterns[pat]
+		rp.loadedAt = time.Now()
+		cache.Store(rp) // update count in cache
+		shouldDeny := count > writeRateLimitCount
+		return shouldDeny
 	}
 }
